@@ -1,0 +1,63 @@
+import { z } from "zod";
+import { ReasonCode } from "./reasons.js";
+
+export const ACTION_NAMES = [
+  "getMerchantSummary",
+  "explainFee",
+  "checkDeviceHealth",
+  "raiseTicket",
+  "proposePlan",
+  "changePlan",
+  "scheduleHumanCallback",
+  "recordOutcome",
+  "recordOptOut",
+  "sendAppMessage",
+] as const;
+export const ActionName = z.enum(ACTION_NAMES);
+export type ActionName = z.infer<typeof ActionName>;
+
+export const Channel = z.enum(["soundbox", "app", "salesperson_visit", "human_callback"]);
+export type Channel = z.infer<typeof Channel>;
+
+export const Brief = z.object({
+  briefId: z.string(),
+  merchantId: z.string(),
+  displayName: z.string(),
+  language: z.string(),
+  channel: Channel,
+  problem: ReasonCode,
+  approachId: z.string(),
+  goal: z.string(),
+  facts: z.record(z.string(), z.union([z.number(), z.string()])),
+  allowedActions: z.array(ActionName),
+  limits: z.object({ maxDiscountInr: z.number() }),
+  mustSay: z.array(z.string()),
+  mustNot: z.array(z.string()),
+  escalateIf: z.array(z.string()),
+  successCriteria: z.string(),
+});
+export type Brief = z.infer<typeof Brief>;
+
+export const OutcomeKind = z.enum(["stayed", "plan_changed", "ticket_raised", "handed_off", "opted_out", "left", "no_response"]);
+export type OutcomeKind = z.infer<typeof OutcomeKind>;
+
+export const Outcome = z.object({
+  briefId: z.string(),
+  outcome: OutcomeKind,
+  reasons: z.array(z.object({ code: ReasonCode, quote: z.string() })),
+  actionsTaken: z.array(ActionName),
+  durationSec: z.number(),
+  numbersVerified: z.boolean(),
+  summary: z.string(),
+});
+export type Outcome = z.infer<typeof Outcome>;
+
+export const MUST_SAY = ["Main Paytm ki AI assistant hoon.", "Paytm kabhi OTP ya PIN nahi maangta."];
+export const MUST_NOT = [
+  "Ask for OTP, PIN, password, card or bank details",
+  "Send links",
+  "Advise splitting payments or accounts to avoid the fee",
+  "Suggest charging customers extra",
+  "Ask about competitors",
+];
+export const ESCALATE_IF = ["Merchant asks for a person", "Merchant is angry", "Merchant mentions legal action or fraud", "Agent is unsure"];

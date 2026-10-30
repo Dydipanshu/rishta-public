@@ -9,6 +9,9 @@
   "packageManager": "pnpm@10.34.9",
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "seed": "tsx scripts/seedDemo.ts",
+    "test": "vitest run",
+    "eval": "tsx eval/runEvals.ts",
     "spike:check": "tsx scripts/spike/checkKeys.ts",
     "spike:openai": "tsx scripts/spike/openaiSmoke.ts",
     "spike:tts": "tsx scripts/spike/ttsVoices.ts",

@@ -12,6 +12,8 @@ const schema = z.object({
   SARVAM_TTS_VOICE: z.string().default("priya"),
   FEE_START_DATE: z.iso.date().default("2026-11-15"),
   DEMO_SEED: z.coerce.number().int().default(7),
+  HOLDOUT_SHARE: z.coerce.number().min(0).max(0.5).default(0.15),
+  OPENAI_REASONING_EFFORT: z.enum(["none", "low", "medium"]).default("none"),
   PORT: z.coerce.number().int().default(3000),
 });
 

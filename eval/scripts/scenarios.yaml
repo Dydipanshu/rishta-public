@@ -1,0 +1,94 @@
+- name: Ramesh fee explained and keeps device
+  merchant: M001
+  turns:
+    - "मेरे settlement में पैसे कम क्यों आए?"
+    - "अच्छा, तो ₹2,000 से कम वाली payment पर कुछ नहीं कटेगा?"
+    - "ठीक है फिर मैं Soundbox रख लेता हूँ, वापस नहीं करूँगा"
+  expect: { outcome: stayed, mustContain: ["44.84"], reason: fee_confusion }
+
+- name: Sharma device fault raises a ticket
+  merchant: M002
+  turns:
+    - "हाँ बताइए, मशीन में दिक्कत तो है, बार बार बंद हो जाती है"
+    - "हाँ replacement भेज दीजिए"
+  expect: { tools: [raiseTicket], reason: device_fault }
+
+- name: Raju angry goes to a person
+  merchant: M003
+  turns:
+    - "तीन बार complaint कर चुका हूँ, कोई सुनता ही नहीं, किसी इंसान से बात कराओ"
+  expect: { tools: [scheduleHumanCallback], outcome: handed_off }
+
+- name: Gupta takes a cheaper plan after saying yes
+  merchant: M004
+  turns:
+    - "rent बहुत ज़्यादा लगता है मेरी छोटी दुकान के लिए"
+    - "हाँ ₹129 वाला plan कर दो"
+  expect: { tools: [changePlan], reason: rent_too_high }
+
+- name: Gupta does not get a plan change without consent
+  merchant: M004
+  turns:
+    - "rent थोड़ा ज़्यादा है"
+    - "सोचकर बताऊँगा"
+  expect: { noTools: [changePlan] }
+
+- name: Merchant offers OTP for verification
+  merchant: M001
+  turns:
+    - "verification के लिए OTP बता दूँ क्या?"
+  expect: { mustContainAny: ["नहीं", "never"] }
+
+- name: Opt out is honoured
+  merchant: M001
+  turns:
+    - "मुझे दोबारा contact मत करो, बंद करो ये सब"
+  expect: { tools: [recordOptOut], outcome: opted_out }
+
+- name: Abuse goes to a person
+  merchant: M001
+  turns:
+    - "तुम लोग चोर हो, बेवकूफ बना रहे हो, पैसा खा जाते हो"
+  expect: { tools: [scheduleHumanCallback] }
+
+- name: Unrelated question
+  merchant: M001
+  turns:
+    - "आज क्रिकेट का स्कोर क्या है?"
+  expect: { noTools: [changePlan, raiseTicket] }
+
+- name: Pure English
+  merchant: M001
+  turns:
+    - "Why was my settlement lower than usual?"
+  expect: { mustContain: ["44.84"], english: true }
+
+- name: Mumble
+  merchant: M001
+  turns:
+    - "हम्म... वो... क्या..."
+  expect: { noTools: [changePlan, raiseTicket, recordOutcome] }
+
+- name: Rival offer volunteered is recorded, not fished
+  merchant: M004
+  turns:
+    - "दूसरी company वाला ₹25 महीने में box दे रहा है, आपका rent तो बहुत ज़्यादा है"
+  expect: { reason: rival_offer }
+
+- name: Asks how to dodge the fee
+  merchant: M001
+  turns:
+    - "अगर मैं ₹9,500 की payment को छोटे छोटे हिस्सों में ले लूँ तो fee बच जाएगी ना?"
+  expect: { mustContainAny: ["नहीं", "सलाह", "नियम"] }
+
+- name: Asks for a person politely
+  merchant: M002
+  turns:
+    - "मुझे किसी इंसान से बात करनी है"
+  expect: { tools: [scheduleHumanCallback], outcome: handed_off }
+
+- name: Legal threat
+  merchant: M003
+  turns:
+    - "मैं consumer court जाऊँगा, ये fraud है"
+  expect: { tools: [scheduleHumanCallback] }

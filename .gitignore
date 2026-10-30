@@ -6,3 +6,4 @@ dist/
 *.db-*
 out/
 .DS_Store
+data/
