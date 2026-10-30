@@ -18,7 +18,7 @@ export function makeTts(s: Settings) {
       text,
       language_code: "hi-IN",
       model: s.SARVAM_TTS_MODEL as "bulbul:v4-flash",
-      speaker: s.SARVAM_TTS_VOICE as "aparna_hi_customer",
+      speaker: s.SARVAM_TTS_VOICE as "ishita_enhi_customer",
       enable_preprocessing: true,
       speech_sample_rate: 24000,
       output_audio_codec: "mp3",
