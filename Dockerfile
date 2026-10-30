@@ -9,7 +9,7 @@ RUN pnpm build
 FROM node:24-slim
 WORKDIR /app
 ENV APP_ENV=production
-COPY --from=build /app .
+COPY --from=build --chown=node:node /app .
 USER node
 EXPOSE 3000
 CMD ["node_modules/.bin/tsx", "src/server/index.ts"]

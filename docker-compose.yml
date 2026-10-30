@@ -1,4 +1,5 @@
-# Full production shape on one machine. Fill the keys in .env first.
+# Full production shape on one machine.
+# Needs the Sarvam and OpenAI keys in .env, plus RISHTA_API_KEY and a 32+ character SESSION_SECRET.
 services:
   postgres:
     image: postgres:17
@@ -15,15 +16,22 @@ services:
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-  api:
+  seed:
     build: .
     env_file: .env
-    environment:
+    environment: &production
       APP_ENV: production
       DATABASE_URL: postgres://rishta:rishta@postgres:5432/rishta
       KAFKA_BROKERS: kafka:9092
-    ports: ["3000:3000"]
+    command: ["node_modules/.bin/tsx", "scripts/seedDemo.ts"]
     depends_on:
       postgres: { condition: service_healthy }
+  api:
+    build: .
+    env_file: .env
+    environment: *production
+    ports: ["3000-3001:3000"]
+    depends_on:
+      seed: { condition: service_completed_successfully }
       kafka: { condition: service_started }
     deploy: { replicas: 2 }
