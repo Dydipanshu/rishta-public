@@ -71,6 +71,10 @@
     "numbersVerified": {
       "type": "boolean"
     },
+    "numbersChecked": {
+      "default": 0,
+      "type": "number"
+    },
     "summary": {
       "type": "string"
     },

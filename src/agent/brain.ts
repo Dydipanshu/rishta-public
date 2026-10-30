@@ -7,22 +7,42 @@ import { Brief, Outcome, type ActionName, type OutcomeKind } from "../engine/bri
 import { recordOutcome } from "../engine/outcomes.js";
 import { REASON_CODES, ReasonCode } from "../engine/reasons.js";
 import type { PaytmCore } from "../ports.js";
-import { checkSentence, collectNumbers, takeChunks } from "./guard.js";
+import { isEnglish } from "../voice/languages.js";
+import { checkSentence, collectNumbers, numbersIn, takeChunks, type GuardResult } from "./guard.js";
 import type { LLMAdapter, LLMItem } from "./llmAdapter.js";
 import { runTool, toolsFor, type ToolContext } from "./tools.js";
 
 const TEMPLATE = readFileSync(new URL("./prompts/system.md", import.meta.url), "utf8");
 const READ_TOOLS = new Set(["getMerchantSummary", "explainFee", "checkDeviceHealth", "proposePlan"]);
+const GOODBYE = /(धन्यवाद|दिन शुभ|thank you|good day|nice day|great day)[^?]*[।.!]?\s*$/i;
+const CONFIRMED = new Set(["raiseTicket", "changePlan"]);
 const FALLBACK = "जी, मैं check करके बताती हूँ।";
 const NO_SPLITTING = "जी, fee बचाने के तरीकों पर मैं सलाह नहीं दे सकती। कोई और सवाल हो तो बताइए।";
+const CANNOT_HELP = "जी, इसमें मैं मदद नहीं कर सकती। Paytm से जुड़ा कोई और सवाल हो तो बताइए।";
 const FAILOVER = "माफ़ कीजिए, अभी दिक्कत आ रही है। Paytm से एक व्यक्ति आपको call करेगा।";
-const CLOSING_LINES: Record<string, string> = {
-  scheduleHumanCallback: "जी, Paytm से एक व्यक्ति आपको call करेगा। धन्यवाद।",
-  recordOptOut: "जी, अब हम आपसे संपर्क नहीं करेंगे। धन्यवाद।",
-  recordOutcome: "बहुत अच्छा जी, धन्यवाद। आपका दिन शुभ हो।",
+const SECRET_HI = "जी, OTP या PIN किसी को मत बताइए, मुझे भी नहीं। Paytm कभी नहीं माँगता। आपका कोई और सवाल हो तो बताइए।";
+const SECRET_EN = "Please never share your OTP or PIN with anyone, including me. Paytm never asks for it. Is there anything else I can help with?";
+const SECRET_WORD = /\b(otp|pin|cvv|password)\b|ओटीपी|ओ टी पी|पिन|पासवर्ड/i;
+const CLOSING_LINES: Record<string, [string, string]> = {
+  scheduleHumanCallback: ["जी, Paytm से एक व्यक्ति आपको call करेगा। धन्यवाद।", "A person from Paytm will call you. Thank you."],
+  recordOptOut: ["जी, अब हम आपसे संपर्क नहीं करेंगे। धन्यवाद।", "We won't contact you again. Thank you."],
+  recordOutcome: ["जी, धन्यवाद। आपका दिन शुभ हो।", "Thank you. Have a good day."],
 };
 
-export const openingLine = (firstName: string) => `नमस्ते ${firstName} जी, मैं Paytm की AI assistant हूँ। Paytm कभी OTP या PIN नहीं माँगता।`;
+// Said by code, not the model, so a fix is always confirmed with the real ticket or plan.
+function confirmation(call: string, result: Record<string, unknown>, english: boolean, device: boolean) {
+  if (call === "raiseTicket") {
+    const next = device ? ["Device team replacement के लिए आपसे संपर्क करेगी।", "The device team will contact you about a replacement."] : ["Support team इसे देखेगी।", "The support team will review it."];
+    return english ? `Your ticket ${result.ticketId} is raised. ${next[1]} Thank you.` : `जी, आपका ticket ${result.ticketId} बन गया है। ${next[0]} धन्यवाद।`;
+  }
+  if (call === "changePlan") {
+    return english ? `Your plan is now ${result.newPlan}. Your rent will be ₹${result.newRentInr} a month. Thank you.` : `जी, आपका plan ${result.newPlan} हो गया है। अब rent ₹${result.newRentInr} महीना लगेगा। धन्यवाद।`;
+  }
+  return null;
+}
+
+export const openingLine = (firstName: string, english = false) =>
+  english ? `${firstName} ji, I'm Paytm's AI assistant. Paytm never asks for your OTP or PIN.` : `${firstName} जी, मैं Paytm की AI assistant हूँ। Paytm कभी OTP या PIN नहीं माँगता।`;
 
 function buildInstructions(brief: Brief, why: string) {
   const { firstName, ...facts } = brief.facts;
@@ -48,7 +68,8 @@ const EXTRACT_INSTRUCTIONS = `You read a conversation between a Paytm AI assista
 reasons: why the shop might leave or is unhappy, from this fixed list only: ${REASON_CODES.join(", ")}.
 Each reason needs "quote": the merchant's exact words, copied character for character from a MERCHANT line.
 Use "unknown" if the merchant gave no reason. Only include what the merchant said. Never infer.
-teamSummary: two plain English sentences for the merchant team: what happened and what was done.
+When a merchant line shows why they are unhappy or thinking of leaving, quote that line rather than a plain question.
+teamSummary: two plain English sentences for the merchant team: what happened and what was done. The WHAT THE SYSTEM DID section is the truth about actions; never contradict it.
 merchantMessage: one short Hindi sentence in Devanagari for the merchant's inbox saying what was done. No numbers.`;
 
 export interface Turn {
@@ -69,6 +90,7 @@ interface ConversationState {
   actions: ActionName[];
   guardEvents: string[];
   numbersVerified: boolean;
+  numbersChecked?: number;
   language?: string;
   ended: boolean;
   outcome: OutcomeKind | null;
@@ -155,23 +177,57 @@ export class Conversation {
     return changed === 1;
   }
 
-  opening() {
-    const text = openingLine(String(this.brief.facts.firstName));
+  opening(english = false) {
+    const text = openingLine(String(this.brief.facts.firstName), english);
     this.transcript.push({ role: "agent", text });
     this.state.input.push({ role: "assistant", content: text });
     return text;
+  }
+
+  // Why the model may not end the conversation yet, if so.
+  private closeBlocked(call: { name: string; args: string }, said: string[], batch: { name: string }[]) {
+    if (call.name !== "recordOutcome") return null;
+    if (said.at(-1)?.trim().endsWith("?")) return "You just asked the merchant a question. Wait for the answer. Do not end yet.";
+    const kind = (JSON.parse(call.args || "{}") as { outcome?: string }).outcome;
+    const firstTurn = this.transcript.filter((t) => t.role === "merchant").length === 1;
+    if (firstTurn && said.length === 0 && kind !== "no_response" && !batch.some((c) => CONFIRMED.has(c.name))) return "Answer the merchant first, then end.";
+    return null;
+  }
+
+  // Runs one sentence through the guard. A pass is spoken and kept.
+  private async pass(chunk: string, said: string[]): Promise<GuardResult> {
+    const check = checkSentence(chunk, this.allowed);
+    if (check.ok) {
+      said.push(chunk);
+      this.say(chunk);
+    } else {
+      this.guardEvents.push(check.reason);
+      await audit(this.deps.sql, this.brief.merchantId, "guard_block", { chunk, reason: check.reason });
+    }
+    return check;
   }
 
   // Yields guarded chunks of speech for one merchant turn.
   async *reply(userText: string): AsyncGenerator<string> {
     this.transcript.push({ role: "merchant", text: userText });
     this.state.input.push({ role: "user", content: userText });
+    const english = isEnglish(userText);
 
+    // The safety line is fixed: instant, and the same every time. A shopkeeper's digits never reach the model.
+    if (SECRET_WORD.test(userText)) {
+      const line = english ? SECRET_EN : SECRET_HI;
+      this.state.input.pop();
+      this.state.input.push({ role: "user", content: "[The merchant mentioned an OTP or PIN. Their words were removed.]" }, { role: "assistant", content: line });
+      this.say(line);
+      yield line;
+      return;
+    }
+
+    const said: string[] = [];
     let retried = false;
-    for (let round = 0; round < 4; round++) {
+    for (let round = 0; round < 5; round++) {
       let buffer = "";
-      let spoke = false;
-      let failed = false;
+      let failure: Exclude<GuardResult, { ok: true }> | null = null;
       let done: { items: LLMItem[]; calls: { callId: string; name: string; args: string }[] } | null = null;
 
       for await (const event of this.deps.llm.turn({ instructions: this.instructions, input: this.state.input, tools: toolsFor(this.brief) })) {
@@ -183,45 +239,41 @@ export class Conversation {
         const { chunks, rest } = takeChunks(buffer);
         buffer = rest;
         for (const chunk of chunks) {
-          const check = checkSentence(chunk, this.allowed);
+          const check = await this.pass(chunk, said);
           if (!check.ok) {
-            this.guardEvents.push(check.reason);
-            await audit(this.deps.sql, this.brief.merchantId, "guard_block", { chunk, reason: check.reason });
-            failed = true;
+            failure = check;
             break;
           }
-          spoke = true;
-          this.say(chunk);
           yield chunk;
         }
-        if (failed) break;
+        if (failure) break;
       }
 
-      if (!failed && buffer.trim()) {
+      if (!failure && buffer.trim()) {
         for (const chunk of takeChunks(buffer, true).chunks) {
-          const check = checkSentence(chunk, this.allowed);
+          const check = await this.pass(chunk, said);
           if (!check.ok) {
-            this.guardEvents.push(check.reason);
-            await audit(this.deps.sql, this.brief.merchantId, "guard_block", { chunk, reason: check.reason });
-            failed = true;
+            failure = check;
             break;
           }
-          spoke = true;
-          this.say(chunk);
           yield chunk;
         }
       }
 
-      if (failed) {
+      if (failure) {
         if (!retried) {
           retried = true;
-          this.state.input.push({ role: "user", content: `[System note, not from the merchant: your last reply used something not allowed (${this.guardEvents.at(-1)}). Reply again using only figures from the facts, written as digits.]` });
+          // Keep what was already spoken, so the retry continues instead of repeating it.
+          if (said.length) this.state.input.push({ role: "assistant", content: said.join(" ") });
+          this.state.input.push({ role: "user", content: `[System note, not from the merchant: your last sentence was blocked (${failure.reason}). ${said.length ? "Continue from what you already said, without repeating it." : "Reply again."} Use only figures from the facts, written as digits.]` });
           continue;
         }
-        // The guard also stops refusals that name splitting, so refuse with a fixed line. Nothing needs checking.
-        if (String(this.guardEvents.at(-1)).includes("splitting")) {
-          this.say(NO_SPLITTING);
-          yield NO_SPLITTING;
+        // The merchant already has an answer, so the blocked sentence is simply dropped.
+        if (said.length) return;
+        if (failure.kind === "forbidden") {
+          const line = failure.reason.includes("splitting") ? NO_SPLITTING : CANNOT_HELP;
+          this.say(line);
+          yield line;
           return;
         }
         yield* this.fallback();
@@ -230,26 +282,48 @@ export class Conversation {
       if (!done) return;
 
       this.state.input.push(...done.items);
+      const confirmations: string[] = [];
       for (const call of done.calls) {
-        const result = await runTool(this.ctx, call.name, call.args);
-        this.actions.push(call.name as ActionName);
+        const blocked = this.closeBlocked(call, said, done.calls);
+        const result = (blocked ? { error: blocked } : await runTool(this.ctx, call.name, call.args)) as Record<string, unknown>;
+        if (!result.error) this.actions.push(call.name as ActionName);
         collectNumbers(result, this.allowed);
         this.state.input.push({ type: "function_call_output", call_id: call.callId, output: JSON.stringify(result) });
+        const line = result.error ? null : confirmation(call.name, result, english, this.brief.problem === "device_fault");
+        if (line) confirmations.push(line);
       }
-      // Closing lines are fixed, so no second model call is needed.
-      const closing = done.calls.map((c) => CLOSING_LINES[c.name]).find(Boolean);
-      if (!spoke && closing) {
-        this.say(closing);
-        yield closing;
+
+      // A fix always ends with the merchant hearing exactly what was done.
+      if (confirmations.length) {
+        // A silent model still owes the merchant the reason, taken from the brief.
+        const alerts = this.brief.facts.batteryAlerts7Days;
+        const reason = said.length === 0 && alerts ? (english ? `I can see ${alerts} battery alerts in the last 7 days. ` : `जी, पिछले 7 दिन में ${alerts} battery alerts आए हैं। `) : "";
+        const line = reason + confirmations.join(" ");
+        this.state.input.push({ role: "assistant", content: line });
+        this.say(line);
+        yield line;
+        this.state.ended = true;
+        return;
+      }
+      const closing = done.calls.filter((c) => this.actions.includes(c.name as ActionName)).map((c) => CLOSING_LINES[c.name]).find(Boolean);
+      if (said.length === 0 && closing) {
+        const line = closing[english ? 1 : 0];
+        this.say(line);
+        yield line;
         return;
       }
       const needsAnswer = done.calls.some((c) => READ_TOOLS.has(c.name));
-      if (done.calls.length === 0 || (spoke && !needsAnswer)) return;
+      if (done.calls.length === 0 || (said.length > 0 && !needsAnswer)) {
+        // A spoken goodbye ends the conversation, even if the model forgot to record it.
+        if (GOODBYE.test(said.at(-1) ?? "")) this.state.ended = true;
+        return;
+      }
     }
   }
 
   private say(text: string) {
     this.transcript.push({ role: "agent", text });
+    this.state.numbersChecked = (this.state.numbersChecked ?? 0) + numbersIn(text).length;
   }
 
   private async *fallback() {
@@ -270,11 +344,22 @@ export class Conversation {
     return FAILOVER;
   }
 
+  // What actually happened outranks what the model claimed.
+  private finalOutcome(merchantSpoke: boolean): OutcomeKind {
+    const claimed = this.state.outcome;
+    if (claimed === "opted_out" || claimed === "handed_off" || claimed === "left") return claimed;
+    if (this.actions.includes("changePlan")) return "plan_changed";
+    if (this.actions.includes("raiseTicket")) return "ticket_raised";
+    if (claimed === "plan_changed" || claimed === "ticket_raised") return "stayed";
+    return claimed ?? (merchantSpoke ? "stayed" : "no_response");
+  }
+
   // Post-call step: reasons, outcome, and the learning loop. Runs once per conversation.
   async finish(): Promise<Outcome | null> {
     this.state.ended = true;
     const merchantLines = this.transcript.filter((t) => t.role === "merchant").map((t) => t.text);
-    const text = this.transcript.map((t) => `${t.role === "merchant" ? "MERCHANT" : "AGENT"}: ${t.text}`).join("\n");
+    const kind = this.finalOutcome(merchantLines.length > 0);
+    const text = `${this.transcript.map((t) => `${t.role === "merchant" ? "MERCHANT" : "AGENT"}: ${t.text}`).join("\n")}\n\nWHAT THE SYSTEM DID: outcome ${kind}; actions ${this.actions.join(", ") || "none"}.`;
 
     let extraction: z.infer<typeof Extraction> = { reasons: [], teamSummary: this.state.summary, merchantMessage: "" };
     if (merchantLines.length > 0) {
@@ -288,9 +373,6 @@ export class Conversation {
       .filter((r) => r.code !== "unknown" && merchantLines.some((l) => l.includes(r.quote.trim())) && r.quote.trim())
       .map((r) => ({ code: ReasonCode.parse(r.code), quote: r.quote.trim() }));
 
-    const kind: OutcomeKind =
-      this.state.outcome ?? (merchantLines.length === 0 ? "no_response" : this.actions.includes("raiseTicket") ? "ticket_raised" : "stayed");
-
     const outcome = Outcome.parse({
       briefId: this.brief.briefId,
       outcome: kind,
@@ -298,6 +380,7 @@ export class Conversation {
       actionsTaken: this.actions,
       durationSec: Math.round((Date.now() - this.state.started) / 1000),
       numbersVerified: this.numbersVerified,
+      numbersChecked: this.state.numbersChecked ?? 0,
       summary: extraction.teamSummary || this.state.summary,
     });
 

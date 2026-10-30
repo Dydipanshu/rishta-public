@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import fastifyMultipart from "@fastify/multipart";
@@ -9,24 +8,23 @@ import { z } from "zod";
 import type { Settings } from "../../config/settings.js";
 import { Conversation, openingLine, type AgentDeps } from "../agent/brain.js";
 import { TOPICS } from "../contracts/events.js";
-import { enqueue } from "../data/outbox.js";
 import { resetLive } from "../data/reset.js";
 import { audit } from "../data/sql.js";
 import { KEEP_WINDOW_DAYS, TODAY } from "../sim/types.js";
 import { Brief, Outcome } from "../engine/brief.js";
-import { outreachBlock } from "../engine/guardrails.js";
+import { sendOutreach } from "../engine/outreach.js";
 import { heardClearly } from "../voice/stt.js";
 import { settleOutcomes } from "../engine/settle.js";
 import { recordOutcome } from "../engine/outcomes.js";
 import type { ChannelGateway, EventBus } from "../ports.js";
-import { LANGUAGES, languageOfText } from "../voice/languages.js";
+import { LANGUAGES, isEnglish, languageOfText } from "../voice/languages.js";
 import type { makeStt } from "../voice/stt.js";
 import type { makeTranslate } from "../voice/translate.js";
 import type { makeTts } from "../voice/tts.js";
 import { bearer, issueMerchantToken, merchantFromToken, validKey } from "./auth.js";
 import { metrics, registry } from "./metrics.js";
 import { openapi } from "./openapi.js";
-import { consoleView, merchantView } from "./views.js";
+import { consoleView, decisionsView, merchantView, shopView } from "./views.js";
 
 export interface AppDeps extends AgentDeps {
   s: Settings;
@@ -46,8 +44,10 @@ const NUDGES: Record<string, string> = {
   rent_too_high: "आपके plan के बारे में एक ज़रूरी बात है। जानने के लिए नीचे का बटन दबाइए।",
   settlement_delay: "आपके settlement की जानकारी है। जानने के लिए नीचे का बटन दबाइए।",
 };
+const ALREADY_DONE = "जी, आपकी बात दर्ज हो चुकी है। धन्यवाद।";
 const DEFAULT_NUDGE = "Paytm की तरफ़ से एक जानकारी है। जानने के लिए नीचे का बटन दबाइए।";
-const nudgeFor = (problem: string) => NUDGES[problem] ?? DEFAULT_NUDGE;
+const HEADS_UP = "आपकी payments के बारे में एक ज़रूरी जानकारी है। जानने के लिए नीचे का बटन दबाइए।";
+const nudgeFor = (b: Brief) => (b.approachId === "fee_threshold_headsup" ? HEADS_UP : NUDGES[b.problem] ?? DEFAULT_NUDGE);
 
 const IDLE_MS = 5 * 60_000;
 const TalkText = z.object({ text: z.string().min(1).max(500) });
@@ -85,8 +85,9 @@ export async function buildApp(d: AppDeps) {
       const event = JSON.parse(value) as { merchantId: string };
       const row = await briefRow(event.merchantId);
       if (!row) return;
-      const lines = row.brief.channel === "soundbox" ? [say(ANNOUNCEMENT), say(nudgeFor(row.brief.problem))] : [];
-      await d.gateway.deliver({ brief: row.brief, lines, card: nudgeFor(row.brief.problem) });
+      const nudge = nudgeFor(row.brief);
+      const lines = row.brief.channel === "soundbox" ? [say(ANNOUNCEMENT), say(nudge)] : [];
+      await d.gateway.deliver({ brief: row.brief, lines, card: nudge });
     },
   });
 
@@ -127,7 +128,12 @@ export async function buildApp(d: AppDeps) {
     reply.raw.on("close", () => screens.delete(reply));
   });
   app.get("/api/console", { preHandler: serviceAuth }, () => consoleView(sql, core));
-  app.get<{ Params: { id: string } }>("/api/merchant/:id", { preHandler: merchantAuth }, (req) => merchantView(sql, core, req.params.id));
+  app.get("/api/decisions", { preHandler: serviceAuth }, () => decisionsView(sql));
+  app.get<{ Params: { id: string } }>("/api/shop/:id", { preHandler: serviceAuth }, async (req, reply) => (await shopView(sql, core, req.params.id)) ?? reply.code(404).send({ error: "No such shop" }));
+  app.get<{ Params: { id: string } }>("/api/merchant/:id", { preHandler: merchantAuth }, async (req, reply) => {
+    if (!(await sql.get("SELECT 1 AS ok FROM merchants WHERE id = ?", [req.params.id]))) return reply.code(404).send({ error: "No such shop" });
+    return merchantView(sql, core, req.params.id);
+  });
 
   app.get<{ Querystring: { t?: string; s?: string } }>("/api/tts/:hash", async (req, reply) => {
     const spoken = tts.verify(req.query.t ?? "", req.query.s ?? "");
@@ -151,25 +157,14 @@ export async function buildApp(d: AppDeps) {
     }
     const row = await briefRow(id);
     if (!row) return reply.code(404).send({ error: "No brief" });
-    const block = outreachBlock(await core.merchant(id), new Date(), production);
-    if (block) {
+    const result = await sendOutreach(sql, core, row.brief, new Date(), production);
+    if (result.blocked) {
       metrics.outreach.inc({ result: "blocked" });
-      await audit(sql, id, "outreach_blocked", { reason: block });
-      return reply.code(409).send({ error: block });
+      return reply.code(409).send({ error: result.blocked });
     }
-    const { brief } = row;
-    const at = new Date().toISOString();
-    const fresh = await sql.tx(async (tx) => {
-      const added = await tx.run("INSERT INTO outreach (brief_id, merchant_id, channel, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (brief_id) DO NOTHING", [brief.briefId, id, brief.channel, at]);
-      // The bench can replay a nudge between rehearsals; production sends each brief once.
-      if (added === 0 && production) return false;
-      await audit(tx, id, "outreach", { channel: brief.channel, approachId: brief.approachId });
-      await enqueue(tx, TOPICS.outreach, id, { id: randomUUID(), type: "outreach.requested", version: 1, at, merchantId: id, briefId: brief.briefId, channel: brief.channel });
-      return true;
-    });
-    metrics.outreach.inc({ result: fresh ? "sent" : "duplicate" });
+    metrics.outreach.inc({ result: result.sent ? "sent" : "duplicate" });
     d.kickRelay();
-    return { ok: true, duplicate: !fresh };
+    return { ok: true, duplicate: !result.sent };
   };
   app.post("/api/outreach/:id", { preHandler: serviceAuth }, outreach);
   app.post("/v1/outreach/:id", { preHandler: serviceAuth }, outreach);
@@ -183,6 +178,13 @@ export async function buildApp(d: AppDeps) {
     if (!conv) {
       const row = await briefRow(id);
       if (!row) return reply.code(404).send({ error: "No brief for this merchant" });
+      // One brief, one conversation: a late press can't overwrite a result that is already in.
+      if (await sql.get("SELECT 1 AS ok FROM outcomes WHERE brief_id = ?", [row.brief.briefId])) {
+        reply.hijack();
+        reply.raw.writeHead(200, { "Content-Type": "application/x-ndjson", "Cache-Control": "no-store" });
+        reply.raw.end(`${JSON.stringify({ type: "say", ...say(ALREADY_DONE) })}\n${JSON.stringify({ type: "end", ended: true })}\n`);
+        return;
+      }
       conv = await Conversation.start(d, row.brief, row.meta.why);
     }
 
@@ -212,7 +214,7 @@ export async function buildApp(d: AppDeps) {
         const out = await speak(line);
         return local ? { text: out.text, audio: tts.prepare(out.text, language) } : out;
       };
-      if (isNew) send({ type: "say", ...(await voiced(conv.opening())) });
+      if (isNew) send({ type: "say", ...(await voiced(conv.opening(isEnglish(text)))) });
       if (!heardClearly(text, language)) {
         await conv.save();
         send({ type: "say", ...(await voiced("जी, मुझे सुनाई नहीं दिया। कृपया फिर से बोलिए।")) });
@@ -328,7 +330,7 @@ export async function buildApp(d: AppDeps) {
 
   async function prewarm() {
     const firstNames = await sql.all<{ first_name: string }>("SELECT first_name FROM merchants WHERE is_demo = 1");
-    await tts.prewarm([ANNOUNCEMENT, ...FILLERS, DEFAULT_NUDGE, ...Object.values(NUDGES), ...firstNames.map((m) => openingLine(m.first_name))]);
+    await tts.prewarm([ANNOUNCEMENT, ...FILLERS, DEFAULT_NUDGE, HEADS_UP, ALREADY_DONE, ...Object.values(NUDGES), ...firstNames.map((m) => openingLine(m.first_name))]);
   }
 
   // Any server can close abandoned conversations; finish() runs only once.

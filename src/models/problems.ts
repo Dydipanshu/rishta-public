@@ -7,6 +7,9 @@ export interface Detected {
   thresholdHeadsUp?: boolean;
 }
 
+// Median rent ÷ collections across all active shops on the bench.
+export const TYPICAL_RENT_SHARE = 0.0036;
+
 const pct = (n: number) => `${Math.round(Math.abs(n) * 100)}%`;
 
 // Rules map data signals to likely reasons. Order is priority.
@@ -24,7 +27,7 @@ export function detectProblem(f: Features): Detected | null {
     return { problem: "settlement_delay", why: `Settlements taking ${Math.round(f.avgDelay7)} hours, ${f.settlementTickets28} complaints this month` };
   }
   if (f.rentTickets28 > 0 || (f.rentShare >= 0.006 && f.trend28v90 <= -0.1)) {
-    return { problem: "rent_too_high", why: `Rent is ${(f.rentShare * 100).toFixed(1)}% of collections` };
+    return { problem: "rent_too_high", why: `Rent takes ${(f.rentShare * 100).toFixed(1)}% of collections, ${Math.round(f.rentShare / TYPICAL_RENT_SHARE)}× a typical shop${f.rentTickets28 > 0 ? "; the shop has complained about it" : ""}` };
   }
   if (f.monthsNearThreshold >= 2) {
     return { problem: "fee_confusion", why: "2 months above ₹1 lakh; a 3rd moves the shop to the paying category", thresholdHeadsUp: true };

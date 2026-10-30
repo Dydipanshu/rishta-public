@@ -18,7 +18,7 @@ export const PLAYBOOK: Partial<Record<ReasonCode, Approach[]>> = {
     { id: "device_troubleshoot_first", label: "Troubleshoot first", guidance: "Walk through a basic restart and charging check, then raise a ticket if it continues." },
   ],
   rent_too_high: [
-    { id: "rent_right_size_plan", label: "Right-size plan", guidance: "Compare rent with collections and offer an eligible cheaper plan from the catalogue." },
+    { id: "rent_right_size_plan", label: "Right-size plan", guidance: "Say what the shop collected and what the rent is, in rupees, then offer an eligible cheaper plan from the catalogue." },
     { id: "rent_value_recap", label: "Value recap", guidance: "Recap the collections Paytm handled this month, then discuss the rent." },
   ],
   settlement_delay: [
@@ -31,7 +31,7 @@ export const PLAYBOOK: Partial<Record<ReasonCode, Approach[]>> = {
 export const FIXED_ROUTES: Record<string, Approach> = {
   fee_threshold_headsup: { id: "fee_threshold_headsup", label: "Threshold heads-up", guidance: "Give an early, factual heads-up that the shop is close to the fee threshold." },
   human_callback: { id: "human_callback", label: "Human callback", guidance: "Hand over to a person with a clear summary." },
-  salesperson_visit: { id: "salesperson_visit", label: "Salesperson visit", guidance: "A salesperson visits with this brief." },
+  salesperson_visit: { id: "salesperson_visit", label: "Salesperson visit", guidance: "Visit the shop in person, listen first, and compare plans fairly." },
   app_checkin: { id: "app_checkin", label: "App check-in", guidance: "Check in politely and learn what changed for the shop." },
 };
 

@@ -23,6 +23,8 @@ interface Scenario {
     mustContainAny?: string[];
     mustNotContain?: string[];
     english?: boolean;
+    notEnded?: boolean;
+    summaryNotContain?: string[];
   };
 }
 
@@ -68,6 +70,7 @@ for (const sc of scenarios) {
     if (conv.ended) break;
   }
 
+  const endedEarly = conv.ended;
   const outcome = (await conv.finish())!;
   const all = replies.join(" ");
   const allowed = new Set<string>();
@@ -83,6 +86,8 @@ for (const sc of scenarios) {
   for (const t of e.mustNotContain ?? []) if (all.includes(t)) fails.push(`should not say "${t}"`);
   if (e.mustContainAny && !e.mustContainAny.some((t) => all.includes(t))) fails.push(`none of ${e.mustContainAny.join("/")}`);
   if (e.english && /[ऀ-ॿ]/.test(all)) fails.push("not in English");
+  if (e.notEnded && endedEarly) fails.push("ended the conversation");
+  for (const t of e.summaryNotContain ?? []) if (outcome.summary.includes(t)) fails.push(`summary says "${t}": ${outcome.summary}`);
   const forbidden = replies.flatMap((r) => takeChunks(r, true).chunks).map((c) => checkSentence(c, new Set(["*"]))).filter((c) => !c.ok && c.kind === "forbidden");
   if (forbidden.length) fails.push("forbidden content reached the merchant");
   if (!outcome.numbersVerified) fails.push("fell back on an unverified number");

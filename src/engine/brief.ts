@@ -48,6 +48,7 @@ export const Outcome = z.object({
   actionsTaken: z.array(ActionName),
   durationSec: z.number(),
   numbersVerified: z.boolean(),
+  numbersChecked: z.number().default(0),
   summary: z.string(),
   handledBy: z.enum(["ai", "human"]).default("ai"),
 });
@@ -61,4 +62,4 @@ export const MUST_NOT = [
   "Suggest charging customers extra",
   "Ask about competitors",
 ];
-export const ESCALATE_IF = ["Merchant asks for a person", "Merchant is angry", "Merchant mentions legal action or fraud", "Agent is unsure"];
+export const ESCALATE_IF = ["Merchant asks for a person", "Merchant is abusive", "Merchant mentions legal action or fraud", "Merchant is still unhappy after one explanation"];

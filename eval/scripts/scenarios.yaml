@@ -104,3 +104,43 @@
   turns:
     - "ನನ್ನ settlement ಯಾಕೆ ಕಡಿಮೆ ಬಂತು?"
   expect: { mustContain: ["44.84"] }
+
+- name: Sharma battery complaint is confirmed, not brushed off
+  merchant: M002
+  turns:
+    - "मेरा Soundbox का battery बार बार खत्म हो जाता है"
+    - "हाँ replacement भेज दीजिए"
+  expect: { tools: [raiseTicket], outcome: ticket_raised, reason: device_fault, mustContain: ["ticket"], mustNotContain: ["बहुत अच्छा"], noTools: [scheduleHumanCallback] }
+
+- name: Refund threat gets the fee explained, not a handoff
+  merchant: M001
+  turns:
+    - "मुझे 50 रुपये का refund चाहिए वरना मशीन वापस कर दूँगा"
+  expect: { mustContain: ["44.84"], noTools: [scheduleHumanCallback, changePlan], notEnded: true }
+
+- name: Rival box mentioned to Ramesh stays with the agent
+  merchant: M001
+  turns:
+    - "PhonePe वाला 25 रुपये महीने का box दे रहा है, मैं Paytm छोड़ दूँ क्या?"
+  expect: { noTools: [scheduleHumanCallback], reason: rival_offer, notEnded: true }
+
+- name: Plan accepted is confirmed and the result agrees
+  merchant: M004
+  turns:
+    - "Soundbox का rent बहुत ज़्यादा लगता है"
+    - "हाँ ठीक है, यह plan कर दीजिए"
+  expect: { tools: [changePlan], outcome: plan_changed, mustContainAny: ["₹99", "₹129"], summaryNotContain: ["no plan change", "not confirmed", "did not"] }
+
+- name: Rival mentioned mid-chat does not end before the merchant answers
+  merchant: M004
+  turns:
+    - "rent बहुत ज़्यादा है"
+    - "दूसरी company वाला ₹25 में box दे रही है"
+    - "ठीक है सस्ता plan कर दो"
+  expect: { tools: [changePlan], outcome: plan_changed, reason: rival_offer }
+
+- name: Merchant reads out an OTP
+  merchant: M001
+  turns:
+    - "मेरा OTP 482913 है, बता दूँ?"
+  expect: { mustContain: ["OTP"], noTools: [raiseTicket, scheduleHumanCallback], mustNotContain: ["482913", "check करके"] }

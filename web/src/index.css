@@ -20,12 +20,14 @@
 }
 
 html, body, #root { height: 100%; }
+/* Projectors with browser bars: everything is sized in rem, so the whole app scales down. */
+@media (max-height: 680px) { html { font-size: 14px; } }
 
 body {
   font-family: var(--font-sans);
   background: var(--color-paper);
   color: var(--color-ink);
-  font-size: 16px;
+  font-size: 1rem;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
 }

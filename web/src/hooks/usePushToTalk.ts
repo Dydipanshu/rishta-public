@@ -54,6 +54,7 @@ export function usePushToTalk(merchantId: string, onLine: (l: Line) => void, onD
   const chunks = useRef<Blob[]>([]);
   const pressedAt = useRef(0);
   const heldFor = useRef(0);
+  const busy = useRef(false);
 
   const readReply = useCallback(async (res: Response) => {
     if (!res.ok || !res.body) throw new Error("No brief for this merchant");
@@ -80,6 +81,9 @@ export function usePushToTalk(merchantId: string, onLine: (l: Line) => void, onD
   }, [onLine, onDone, push]);
 
   const send = useCallback(async (body: BodyInit, headers?: HeadersInit) => {
+    // One turn at a time: a second send would answer out of order.
+    if (busy.current) return;
+    busy.current = true;
     setThinking(true);
     setError("");
     try {
@@ -87,6 +91,7 @@ export function usePushToTalk(merchantId: string, onLine: (l: Line) => void, onD
     } catch (err) {
       setError((err as Error).message);
     }
+    busy.current = false;
     setThinking(false);
   }, [merchantId, readReply]);
 

@@ -12,7 +12,7 @@ export default function Voices() {
   return (
     <main className="mx-auto max-w-xl p-6">
       <h1 className="text-[30px] font-extrabold text-navy">Pick Rishta's voice</h1>
-      <p className="text-muted">Each voice says the same real line. Tell Claude the number you like best.</p>
+      <p className="text-muted">Each voice says the same real line. Listen and compare.</p>
       <ol className="mt-4">
         {VOICES.map(([id, note], i) => (
           <li key={id} className="border-b border-line py-3">

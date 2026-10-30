@@ -22,6 +22,9 @@ export function languageOfText(text: string, current: string) {
   return inScript(text, "Devanagari") && current !== "mr-IN" ? HINDI : current;
 }
 
+// Fixed lines follow the merchant: full English gets English, a stray word doesn't.
+export const isEnglish = (text: string) => /^[\x00-\x7F₹]+$/.test(text) && words(text) >= 3;
+
 // Noisy Hindi can be misread as another language, so a switch needs a confident, full phrase in the right script.
 export function trustDetection(text: string, language: string, confidence: number | undefined, current: string) {
   const known = LANGUAGES[language];

@@ -1,11 +1,13 @@
 // The nightly decision job. One process: `pnpm daily`.
 // Weekly learning update: `pnpm daily --settle`.
+// Morning send, no person involved: `pnpm daily --send`. Publishing needs the server's outbox relay running.
 // Many: `pnpm daily --start`, then `pnpm daily --shard i/n` for each i, then `pnpm daily --finalize`.
 import { existsSync } from "node:fs";
 import { benchCore } from "../adapters/benchCore.js";
 import { openSql } from "../data/sql.js";
 import { shardRange } from "../data/store.js";
 import { dailyRun, finalizeRun, runShards } from "../engine/dailyRun.js";
+import { sendMorningOutreach } from "../engine/outreach.js";
 import { settleOutcomes } from "../engine/settle.js";
 import { TODAY } from "../sim/types.js";
 
@@ -17,6 +19,8 @@ const arg = process.argv[2];
 
 if (arg === "--settle") {
   console.log("Settled:", await settleOutcomes(sql, core, seed, TODAY));
+} else if (arg === "--send") {
+  console.log("Morning send:", await sendMorningOutreach(sql, core, new Date(), process.env.APP_ENV === "production"));
 } else if (arg === "--start") {
   await sql.run("DELETE FROM run_shards");
   console.log("Run started");

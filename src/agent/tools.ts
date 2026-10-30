@@ -23,6 +23,8 @@ interface ToolDef {
 }
 
 const none = z.object({}).strict();
+const YES = /हाँ|हां|ठीक|कर दो|कर दीजिए|चलेगा|\b(haan|han|ok|okay|yes|theek|kar do)\b/i;
+const NO = /नहीं|नही|मत|सोच|\b(no|nahi|mat)\b/i;
 
 export const TOOLS: Record<ActionName, ToolDef> = {
   getMerchantSummary: {
@@ -63,7 +65,9 @@ export const TOOLS: Record<ActionName, ToolDef> = {
       const m = await core.merchant(brief.merchantId);
       const plan = eligiblePlans(m.monthlyRent, brief.limits.maxDiscountInr).find((p) => p.id === planId);
       if (!plan) return { error: "That plan is not available for this shop." };
-      if (!agreedQuote.trim() || !lastUserText().includes(agreedQuote.trim())) return { error: "The merchant has not clearly agreed yet. Ask them first." };
+      const last = lastUserText();
+      const agreed = (agreedQuote.trim() && last.includes(agreedQuote.trim())) || (YES.test(last) && !NO.test(last));
+      if (!agreed) return { error: "The merchant has not clearly agreed yet. Ask them first." };
       await core.changePlan(m.id, m.planId, plan);
       return { changed: true, newPlan: plan.name, newRentInr: plan.monthlyRent };
     },

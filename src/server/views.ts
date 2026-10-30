@@ -1,12 +1,24 @@
 import { PLAYBOOK, approachById } from "../../config/playbook.js";
 import type { Sql } from "../data/sql.js";
 import { feeFacts, summaryFacts } from "../engine/facts.js";
+import { outreachBlock } from "../engine/guardrails.js";
 import { REASON_LABELS, SUGGESTED_MOVES, type ReasonCode } from "../engine/reasons.js";
 import type { PaytmCore } from "../ports.js";
 import { TODAY } from "../sim/types.js";
 
 type Row = Record<string, any>;
 const parse = <T = any>(s: string) => JSON.parse(s) as T;
+
+// What a salesperson should open with, by problem.
+const VISIT_OPENERS: Partial<Record<ReasonCode, string>> = {
+  rival_offer: "Ask what changed for the shop, then compare plans fairly. Don't run down the other company.",
+  closing_business: "Ask how the business is doing. If they are closing, explain how to return the device.",
+  settlement_delay: "Bring the settlement status and open tickets, and say what has been done so far.",
+  rent_too_high: "Show what the shop collected this month and offer the plan that fits.",
+  fee_confusion: "Walk through the shop's own settlement line by line.",
+  device_fault: "Bring a replacement device and check it takes a test payment.",
+  low_sales_season: "Ask how sales are going and show what the shop collected this month.",
+};
 
 const COST_PER_MINUTE_INR = 3; // list-price estimate: STT + TTS + LLM
 const QUEUE_SIZE = 40;
@@ -48,7 +60,8 @@ async function why(sql: Sql) {
     })
     .filter((s) => s.now >= 5 && s.now >= 2 * Math.max(1, s.before))
     .sort((a, b) => b.now - b.before - (a.now - a.before))
-    .slice(0, 3);
+    .slice(0, 3)
+    .map((s) => ({ ...s, quote: recent.find((e) => e.code === s.code && e.city === s.city)?.quote ?? null }));
   return { reasons, spikes };
 }
 
@@ -86,7 +99,9 @@ async function done(sql: Sql) {
   const byAi = outcomes.filter((o) => o.handledBy !== "human");
   const resolved = byAi.filter((o) => ["stayed", "plan_changed", "ticket_raised"].includes(o.outcome)).length;
   const tickets = await sql.get("SELECT COUNT(*) AS c FROM tickets WHERE live = 1");
+  const history = await sql.get("SELECT SUM(CASE WHEN approach_id <> 'holdout' THEN 1 ELSE 0 END) AS contacted, AVG(CASE WHEN approach_id <> 'holdout' THEN kept END) AS keep, AVG(CASE WHEN approach_id = 'holdout' THEN kept END) AS control, SUM(CASE WHEN approach_id = 'holdout' THEN 1 ELSE 0 END) AS controlN FROM contact_history WHERE kept IS NOT NULL AND true_cause <> 'live'");
   return {
+    simulated: { contacted: Number(history?.contacted ?? 0), keepRate: Number(history?.keep ?? 0), controlRate: Number(history?.control ?? 0), controlN: Number(history?.controlN ?? 0) },
     conversations: byAi.length,
     humanClosed: outcomes.length - byAi.length,
     resolvedWithoutHuman: resolved,
@@ -126,7 +141,7 @@ async function humanWork(sql: Sql, core: PaytmCore) {
   const visits = visitRows.map((v) => {
     const brief = parse(v.json);
     const meta = parse(v.meta);
-    return { merchantId: brief.merchantId, briefId: brief.briefId, problem: brief.problem, closed: closed.has(brief.merchantId), name: meta.name, city: meta.city, why: meta.why, say: approachById(brief.approachId)?.guidance ?? "", tried: "No proactive contact in the last 28 days" };
+    return { merchantId: brief.merchantId, briefId: brief.briefId, problem: brief.problem, closed: closed.has(brief.merchantId), name: meta.name, city: meta.city, why: meta.why, say: VISIT_OPENERS[brief.problem as ReasonCode] ?? approachById(brief.approachId)?.guidance ?? "", tried: "No proactive contact in the last 28 days" };
   });
   return { needsHuman: [...live, ...waiting], visits };
 }
@@ -152,6 +167,45 @@ export async function consoleView(sql: Sql, core: PaytmCore) {
   };
 }
 
+// Every decision of the night, light enough to list in full.
+export async function decisionsView(sql: Sql) {
+  const briefs = await sql.all("SELECT merchant_id, channel, meta FROM briefs ORDER BY sort_key DESC");
+  const left = await sql.all("SELECT merchant_id, name, city, kind, reasons FROM left_alone ORDER BY is_demo DESC, merchant_id");
+  return {
+    decided: briefs.map((b) => {
+      const m = parse(b.meta);
+      return { id: b.merchant_id, name: m.name, city: m.city, reason: m.reasonLabel, why: m.why, approach: m.approachLabel, channel: b.channel, risk: m.risk };
+    }),
+    left: left.map((l) => ({ id: l.merchant_id, name: l.name, city: l.city, kind: l.kind, reasons: parse(l.reasons) })),
+  };
+}
+
+async function latestConversation(sql: Sql, id: string) {
+  const row = await sql.get<{ state: string; finished: number }>("SELECT state, finished FROM conversations WHERE merchant_id = ? ORDER BY started_at DESC LIMIT 1", [id]);
+  if (!row) return null;
+  const s = parse(row.state);
+  return { transcript: s.transcript as { role: string; text: string }[], actions: s.actions as string[], numbersChecked: (s.numbersChecked ?? 0) as number, guardEvents: s.guardEvents as string[], ended: !!row.finished || !!s.ended };
+}
+
+// One shop, whatever Rishta decided about it. Null means no such shop.
+export async function shopView(sql: Sql, core: PaytmCore, id: string) {
+  const merchant = await sql.get<{ name: string; city: string }>("SELECT name, city FROM merchants WHERE id = ?", [id]);
+  if (!merchant) return null;
+  const row = await sql.get("SELECT json, meta FROM briefs WHERE merchant_id = ?", [id]);
+  const left = await sql.get("SELECT kind, reasons FROM left_alone WHERE merchant_id = ?", [id]);
+  const out = await sql.get("SELECT json FROM outcomes WHERE merchant_id = ? ORDER BY created_at DESC LIMIT 1", [id]);
+  const m = await core.merchant(id);
+  return {
+    id, ...merchant,
+    brief: row ? parse(row.json) : null,
+    meta: row ? parse(row.meta) : null,
+    left: left ? { kind: left.kind, reasons: parse(left.reasons) } : null,
+    outcome: out ? parse(out.json) : null,
+    blocked: outreachBlock(m, new Date(), false),
+    live: await latestConversation(sql, id),
+  };
+}
+
 export async function merchantView(sql: Sql, core: PaytmCore, id: string) {
   const m = await core.merchant(id);
   const brief = await sql.get("SELECT json FROM briefs WHERE merchant_id = ?", [id]);
@@ -160,11 +214,13 @@ export async function merchantView(sql: Sql, core: PaytmCore, id: string) {
     name: m.name,
     city: m.city,
     plan: { id: m.planId, rent: m.monthlyRent },
-    today: m.days[TODAY]!.value,
+    // The latest settlement already holds today's batch, so the live counter starts from the last full day.
+    today: m.days[TODAY - 1]!.value,
     ...summaryFacts(m, TODAY),
     fee: feeFacts(m, TODAY),
     hasBrief: !!brief,
     channel: brief ? parse(brief.json).channel : null,
+    conversation: await latestConversation(sql, id),
     inbox: await sql.all("SELECT text, created_at FROM inbox WHERE merchant_id = ? ORDER BY id DESC", [id]),
     tickets: await sql.all("SELECT id, type, status, note FROM tickets WHERE merchant_id = ? AND live = 1 ORDER BY id DESC", [id]),
   };

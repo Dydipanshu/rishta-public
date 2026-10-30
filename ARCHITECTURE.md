@@ -61,7 +61,7 @@ The published contract is in `contracts/`: OpenAPI plus JSON Schema for briefs, 
 ## Production controls
 
 - **Access:** service routes need an API key, and merchants need a short-lived signed token that only reaches their own data. Secrets are checked at boot, and the reset route doesn't exist in production.
-- **Merchant safety:** consent, opt-out and contact hours (9am to 7pm IST) are re-checked at send time. Each brief is sent once. `OUTREACH_ENABLED=false` stops all outreach.
+- **Merchant safety:** consent, opt-out and contact hours (9am to 7pm IST) are re-checked at send time. Each brief is sent once. `OUTREACH_ENABLED=false` stops all outreach. `pnpm daily --send` is the morning send: every brief goes out with no person involved.
 - **Failure:** model and speech calls have time limits. If a turn fails, the merchant is told a person will call and a handoff is created.
 - **Abandoned calls:** any server can close them after 5 idle minutes, and each conversation finishes exactly once.
 - **Operations:** `/healthz`, `/readyz`, `/metrics` (Prometheus), JSON logs with credentials redacted, graceful shutdown, append-only audit log.

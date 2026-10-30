@@ -71,8 +71,9 @@ const next = (name: string | RegExp) => page.getByRole("button", { name }).click
 await page.goto("http://localhost:3000/");
 await page.getByRole("button", { name: "Start", exact: true }).click();
 await page.waitForURL("**/today");
+await next("See who and why");
 await next("See the first shop");
-await next(/^Contact/);
+await next(/^Send the nudge/);
 await page.getByText("Tap to say this").first().waitFor({ timeout: 30_000 });
 await page.waitForTimeout(9000);
 
@@ -106,7 +107,7 @@ await next("The team");
 check((await body()).length > 0, "reached the last page");
 
 await next("Try Sharma Medicos");
-await next(/^Contact/);
+await next(/^Send the nudge/);
 await page.getByText("Tap to say this").first().waitFor({ timeout: 30_000 });
 await page.waitForTimeout(9000);
 for (const line of ["मेरा Soundbox का battery बार बार खत्म हो जाता है", "हाँ replacement भेज दीजिए"]) {
@@ -122,8 +123,9 @@ await page.screenshot({ path: `${SHOTS}/sharma.png` });
 for (const [line, code, speaker, script, name] of [["ನನ್ನ settlement ಯಾಕೆ ಕಡಿಮೆ ಬಂತು", "kn-IN", "chaitra_kn_conversation", /\p{Script=Kannada}/u, "Kannada"], ["என் settlement ஏன் குறைவாக வந்தது", "ta-IN", "aravind_ta_ads", /\p{Script=Tamil}/u, "Tamil"]] as const) {
   await page.goto("http://localhost:3000/");
   await page.getByRole("button", { name: "Start", exact: true }).click();
-  await next("See the first shop");
-  await next(/^Contact/);
+  await next("See who and why");
+await next("See the first shop");
+  await next(/^Send the nudge/);
   await page.getByText("Tap to say this").first().waitFor({ timeout: 30_000 });
   await page.waitForTimeout(9000);
   await hold(await clip(line, code, speaker));

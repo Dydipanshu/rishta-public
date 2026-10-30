@@ -1,6 +1,7 @@
 import { FEES } from "../../config/fees.js";
 import { MAX_MONTHLY_DISCOUNT_INR, eligiblePlans } from "../../config/plans.js";
 import { buildFeatures } from "../features/buildFeatures.js";
+import { TYPICAL_RENT_SHARE } from "../models/problems.js";
 import type { Merchant } from "../sim/types.js";
 import type { ReasonCode } from "./reasons.js";
 
@@ -50,6 +51,7 @@ export function rentFacts(m: Merchant, day: number) {
   return {
     monthlyRentInr: m.monthlyRent,
     rentSharePct: round2(f.rentShare * 100),
+    typicalRentSharePct: round2(TYPICAL_RENT_SHARE * 100),
     cheapestEligibleRentInr: plans.at(-1)?.monthlyRent ?? m.monthlyRent,
   };
 }

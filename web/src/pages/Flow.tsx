@@ -16,7 +16,12 @@ const GROUPS: Record<Group, { label: string; color: string }> = {
 const IDLE = "#cfd9e4";
 const CHANNEL: Record<string, string> = { soundbox: "Their Soundbox", app: "The Paytm app", salesperson_visit: "A salesperson visit", human_callback: "A call from a person" };
 const SERIES = ["#002e6e", "#00a9de", "#b6c7d9"];
-const OUTCOME: Record<string, string> = { stayed: "Stayed", plan_changed: "Plan changed", ticket_raised: "Ticket raised", handed_off: "Passed to a person", opted_out: "Opted out", left: "Left", no_response: "No response" };
+const OUTCOME: Record<string, [string, "good" | "plain" | "bad"]> = {
+  stayed: ["Says they'll stay", "good"], plan_changed: ["Plan changed", "good"], ticket_raised: ["Ticket raised, shop told", "good"],
+  handed_off: ["Passed to a person", "plain"], no_response: ["Nothing needed", "plain"], opted_out: ["Opted out", "bad"], left: ["Left", "bad"],
+};
+const TAB: Record<string, Group> = { talk: "handled", visit: "visit", call: "callback", left: "left" };
+const CHANNEL_SHORT: Record<string, string> = { soundbox: "Soundbox", app: "App", salesperson_visit: "Visit", human_callback: "Person calls" };
 
 const FACTS: Record<string, [string, "inr" | "pct" | "count"]> = {
   latestSettlementGrossInr: ["Payments in the settlement", "inr"],
@@ -32,6 +37,7 @@ const FACTS: Record<string, [string, "inr" | "pct" | "count"]> = {
   collections30DaysInr: ["Collections, last 30 days", "inr"],
   payments30Days: ["Payments, last 30 days", "count"],
   customers30Days: ["Customers, last 30 days", "count"],
+  typicalRentSharePct: ["Same share, typical shop", "pct"],
   periodDays: ["Days looked at", "count"],
   avgSettlementHours7Days: ["Average settlement time, hours", "count"],
   openTickets: ["Open tickets", "count"],
@@ -40,7 +46,7 @@ const FACTS: Record<string, [string, "inr" | "pct" | "count"]> = {
   cheapestEligibleRentInr: ["Cheapest plan they can get", "inr"],
   zeroFeeLimitInr: ["Zero-fee limit per month", "inr"],
   monthsAboveLimit: ["Months above the limit", "count"],
-  monthsToMove: ["Months until the fee applies", "count"],
+  monthsToMove: ["Months above the limit before the fee applies", "count"],
   batteryAlerts7Days: ["Battery alerts, last 7 days", "count"],
   offlineHours7Days: ["Hours offline, last 7 days", "count"],
   failedPaymentsPct7Days: ["Failed payments, last 7 days", "pct"],
@@ -55,7 +61,7 @@ const pct = (n: number | null) => (n === null ? "–" : `${Math.round(n * 100)}%
 const num = (n: number) => n.toLocaleString("en-IN");
 const words = (key: string) => key.replace(/(\d+)/g, " $1").replace(/([A-Z])/g, " $1").replace(/Pct/, "%").replace(/ Inr/, "").replace(/^./, (c) => c.toUpperCase());
 // Segment codes mean nothing to a judge.
-const plainReason = (r: string) => r.replace(/Learned \(simulated\): in \S+ shops, /, "Learned from past results (simulated): in fruit and vegetable shops in tier 2 cities, ").replace(/ of holdout/, " of shops nobody contacted");
+const plainReason = (r: string) => r.replace(/Learned \(simulated\): in \S+ shops, (\d+%) of contacted shops stayed vs (\d+%) of holdout/, "Contact backfires for fruit and vegetable shops in tier 2 cities: $1 stayed when contacted, $2 when left alone (simulated)");
 
 function fact(key: string, value: unknown) {
   const [label, kind] = FACTS[key] ?? [words(key), "count"];
@@ -64,7 +70,7 @@ function fact(key: string, value: unknown) {
 }
 
 // One dot per shop, coloured by today's decision. The bold moment of the console.
-function ShopMap({ plan, active, onHover }: { plan: any; active: Group | null; onHover: (g: Group | "idle" | null) => void }) {
+function ShopMap({ plan, active, onHover, onPick }: { plan: any; active: Group | null; onHover: (g: Group | "idle" | null) => void; onPick: (g: Group) => void }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const COLS = 100;
   const dots = useMemo(() => {
@@ -119,7 +125,7 @@ function ShopMap({ plan, active, onHover }: { plan: any; active: Group | null; o
     return () => { cancelAnimationFrame(frame); removeEventListener("resize", again); };
   }, [dots, rows, active]);
 
-  const hover = (e: React.MouseEvent) => {
+  const dotAt = (e: React.MouseEvent) => {
     const box = canvas.current!.getBoundingClientRect();
     const cell = box.width / COLS;
     const cx = Math.floor((e.clientX - box.left) / cell);
@@ -127,22 +133,25 @@ function ShopMap({ plan, active, onHover }: { plan: any; active: Group | null; o
     // Hit area is bigger than the dot: look at the neighbours too.
     for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
       const g = dots[(cy + dy) * COLS + cx + dx];
-      if (g) return onHover(g);
+      if (g) return g;
     }
-    onHover("idle");
+    return null;
   };
-  return <canvas ref={canvas} onMouseMove={hover} onMouseLeave={() => onHover(null)} role="img" aria-label={`${plan.checked} shops, one dot each. Coloured dots are shops Rishta made a decision about.`} className="block w-full" />;
+  return <canvas ref={canvas} onMouseMove={(e) => onHover(dotAt(e) ?? "idle")} onClick={(e) => { const g = dotAt(e); if (g) onPick(g); }} onMouseLeave={() => onHover(null)} style={{ cursor: active ? "pointer" : "default" }} role="img" aria-label={`${plan.checked} shops, one dot each. Coloured dots are shops Rishta made a decision about.`} className="block w-full" />;
 }
 
 function Weeks({ approaches }: { approaches: any[] }) {
   const weeks = approaches[0]?.weekly.length ?? 0;
   return (
-    <div className="flex h-28 items-end gap-[3px]" role="img" aria-label="Share of contacts given to each approach, by week">
-      {Array.from({ length: weeks }, (_, i) => (
-        <div key={i} className="flex h-full flex-1 flex-col-reverse gap-[2px]" title={`Week ${i + 1}: ${approaches.map((a) => `${a.label} ${pct(a.weekly[i])}`).join(", ")}`}>
-          {approaches.map((a, j) => <div key={a.id} className="first:rounded-b-[3px] last:rounded-t-[3px]" style={{ height: `${a.weekly[i] * 100}%`, background: SERIES[j] }} />)}
-        </div>
-      ))}
+    <div className="flex gap-1.5">
+      <div className="flex h-28 flex-col justify-between text-right text-xs text-muted" aria-hidden><span>100%</span><span>50%</span><span>0%</span></div>
+      <div className="flex h-28 flex-1 items-end gap-[3px]" role="img" aria-label="Share of contacts given to each approach, by week">
+        {Array.from({ length: weeks }, (_, i) => (
+          <div key={i} className="flex h-full flex-1 flex-col-reverse gap-[2px]" title={`Week ${i + 1}: ${approaches.map((a) => `${a.label} ${pct(a.weekly[i])}`).join(", ")}`}>
+            {approaches.map((a, j) => <div key={a.id} className="first:rounded-b-[3px] last:rounded-t-[3px]" style={{ height: `${a.weekly[i] * 100}%`, background: SERIES[j] }} />)}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -152,16 +161,19 @@ function Proof({ v }: { v: View }) {
   const pb = v.playbook.find((p: any) => p.problem === problem);
   const rows = [...pb.approaches.map((a: any, i: number) => ({ ...a, color: SERIES[i] })), { id: "holdout", label: "Nobody contacted them", ...pb.holdout, color: "#8896a8" }];
   const r = v.report;
+  const lift = pb.lift;
+  const low = lift ? Math.max(0, Math.round((lift.points - lift.margin) * 100)) : 0;
+  const high = lift ? Math.round((lift.points + lift.margin) * 100) : 0;
   return (
     <div>
-      <h1 className="max-w-3xl text-[30px] font-extrabold leading-[1.14] text-navy">
-        {pb.lift?.proven ? `"${pb.lift.approach}" keeps ${Math.round(pb.lift.points * 100)} more shops in every 100 than doing nothing.` : `For ${pb.label.toLowerCase()}, there isn't enough evidence yet.`}
+      <h1 className="max-w-3xl text-[1.75rem] font-extrabold leading-[1.14] text-navy">
+        {lift?.proven ? `"${lift.approach}" keeps ${low} to ${high} more shops in every 100 than doing nothing.` : lift ? `For ${pb.label.toLowerCase()}, Rishta prefers "${lift.approach}", but can't yet prove it beats doing nothing.` : `For ${pb.label.toLowerCase()}, there are no results yet.`}
       </h1>
-      <p className="mt-1 text-muted">{pb.lift && `Margin of error ±${Math.round(pb.lift.margin * 100)} points. `}Simulated test data with known answers.</p>
-      <div className="mt-4 flex flex-wrap gap-1" role="tablist" aria-label="Problem">
+      <p className="mt-1 text-muted">{lift && `Best estimate ${Math.round(lift.points * 100)} more shops per 100, margin ±${Math.round(lift.margin * 100)}, against ${pb.holdout.n} shops nobody contacted. `}Simulated test data with known answers.</p>
+      <div className="mt-3 flex flex-wrap gap-1" role="tablist" aria-label="Problem">
         {v.playbook.map((p: any) => <button key={p.problem} role="tab" aria-selected={p.problem === problem} onClick={() => setProblem(p.problem)} className={`rounded-full px-3 py-1 ${p.problem === problem ? "bg-navy text-white" : "bg-white"}`}>{p.label}</button>)}
       </div>
-      <div className="mt-5 grid gap-x-8 gap-y-6 md:grid-cols-2">
+      <div className="mt-4 grid gap-x-8 gap-y-6 md:grid-cols-2">
         <section>
           <h2 className="font-semibold text-navy">Shops still active after 30 days</h2>
           <div className="mt-2 space-y-2.5">
@@ -174,17 +186,18 @@ function Proof({ v }: { v: View }) {
           </div>
         </section>
         <section>
-          <h2 className="font-semibold text-navy">Rishta moved contacts to what works</h2>
+          <h2 className="font-semibold text-navy">Share of contacts Rishta gave each approach</h2>
           <div className="mt-2"><Weeks approaches={pb.approaches} /></div>
-          <div className="mt-1 flex justify-between text-sm text-muted"><span>Week 1</span><span>Now</span></div>
+          <div className="mt-1 flex justify-between pl-9 text-sm text-muted"><span>Week 1</span><span>Now</span></div>
+          <p className="text-sm text-muted">Early weeks stay roughly even: a result takes 30 days to arrive. Then contacts move to what worked, and 10% keep testing the rest.</p>
           <div className="mt-1 flex flex-wrap gap-x-4 text-sm">{pb.approaches.map((a: any, i: number) => <span key={a.id}><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full" style={{ background: SERIES[i] }} />{a.label}</span>)}</div>
         </section>
       </div>
       {r && (
-        <section className="mt-7 border-t border-line pt-4">
+        <section className="mt-5 border-t border-line pt-3">
           <h2 className="font-semibold text-navy">We planted the answers in the test data. Did Rishta find them?</h2>
           <div className="mt-2 grid grid-cols-2 gap-4 md:grid-cols-4">
-            {[[pct(r.reasonAccuracy), `right reason, ${num(r.reasonCases)} cases`], [`${r.winnersFound} of ${r.problems}`, "best approach found"], [r.backfireFound ? "Yes" : "No", "found shops where contact backfires"], [`${r.riskLift.toFixed(1)}×`, "likelier to leave, riskiest 10% of shops"]].map(([big, small]) => (
+            {[[pct(r.reasonAccuracy), `found the planted reason, ${num(r.reasonCases)} shops`], [`${r.winnersFound} of ${r.problems}`, "problems: picked the planted best approach"], [r.backfireFound ? "Yes" : "No", "found the shops where contact backfires"], [`${r.riskLift.toFixed(1)}×`, "the 10% it flags riskiest leave this much more often than average"]].map(([big, small]) => (
               <div key={small}><div className="text-3xl font-extrabold text-navy">{big}</div><div className="text-sm text-muted">{small}</div></div>
             ))}
           </div>
@@ -197,27 +210,30 @@ function Proof({ v }: { v: View }) {
 function Why({ v, flash }: { v: View; flash: boolean }) {
   const top = v.why.reasons[0]?.count ?? 1;
   const live = v.why.reasons.flatMap((r: any) => r.quotes.filter((q: any) => q.live).map((q: any) => ({ ...q, label: r.label })));
+  const spike = v.why.spikes[0];
   return (
     <div>
-      <h1 className="max-w-3xl text-[30px] font-extrabold leading-[1.14] text-navy">
-        {v.why.spikes[0] ? `${v.why.spikes[0].label} mentions in ${v.why.spikes[0].city} jumped from ${v.why.spikes[0].before} to ${v.why.spikes[0].now} in 4 weeks.` : "No sudden changes this month."}
+      <h1 className="max-w-3xl text-[1.75rem] font-extrabold leading-[1.14] text-navy">
+        {spike ? `${spike.label} mentions in ${spike.city} jumped from ${spike.before} to ${spike.now} in 4 weeks.` : "No sudden changes this month."}
       </h1>
-      <p className="mt-1 max-w-2xl text-lg">{v.why.spikes[0]?.move}</p>
+      {spike?.quote && <p className="mt-1 max-w-2xl text-lg">"{spike.quote}", {spike.city}</p>}
+      {spike && <p className="max-w-2xl font-semibold text-navy">Suggested move: {spike.move}</p>}
+      <p className="mt-1 text-sm text-sim">History is simulated. Quotes marked "Just now" come from live conversations.</p>
       {live.map((q: any, i: number) => (
-        <div key={i} className={`rise mt-4 max-w-2xl border-l-4 border-paytm pl-4 ${flash ? "bg-paytm/10" : ""}`}>
-          <div className="text-sm text-muted">Just now, {q.city} · {q.label}</div>
+        <div key={i} className={`rise mt-3 max-w-2xl rounded-r-lg border-l-4 border-paytm py-1 pl-4 transition-colors ${flash ? "bg-paytm/20" : "bg-paytm/10"}`}>
+          <div className="text-sm font-semibold text-navy">Just now, {q.city} · {q.label}</div>
           <div className="text-xl">"{q.quote}"</div>
         </div>
       ))}
-      <div className="mt-6 grid gap-x-8 gap-y-6 md:grid-cols-[minmax(0,1.3fr)_minmax(260px,1fr)]">
+      <div className="mt-4 grid gap-x-8 gap-y-6 md:grid-cols-[minmax(0,1.3fr)_minmax(260px,1fr)]">
         <section>
           <h2 className="font-semibold text-navy">What shopkeepers said, last 4 weeks</h2>
           <div className="mt-2 space-y-3">
             {v.why.reasons.slice(0, 5).map((r: any) => (
               <div key={r.code}>
-                <div className="flex justify-between"><span className="font-semibold">{r.label}</span><span>{r.count}</span></div>
+                <div className="flex justify-between"><span className="font-semibold">{r.label}</span><span>{r.count}{r.liveCount > 0 && <span className="ml-2 rounded-full bg-paytm px-2 text-sm font-semibold text-navy">+{r.liveCount} just now</span>}</span></div>
                 <div className="mt-0.5 h-2 rounded-full bg-idle"><div className="h-full rounded-full bg-navy" style={{ width: `${(r.count / top) * 100}%` }} /></div>
-                {r.quotes[0] && <div className="mt-0.5 text-sm text-muted">"{r.quotes[0].quote}", {r.quotes[0].city}</div>}
+                {(() => { const q = r.code === spike?.code && spike?.quote ? spike : r.quotes[0]; return q && <div className="mt-0.5 text-sm text-muted">"{q.quote}", {q.city}</div>; })()}
               </div>
             ))}
           </div>
@@ -234,7 +250,6 @@ function Why({ v, flash }: { v: View; flash: boolean }) {
           </section>
         )}
       </div>
-      <p className="mt-5 text-sm text-sim">History is simulated. Quotes marked "Just now" come from live conversations.</p>
     </div>
   );
 }
@@ -253,14 +268,20 @@ function Qr({ url, label }: { url: string; label: string }) {
 
 function Team({ v, selected }: { v: View; selected: string }) {
   const d = v.done;
-  const stats: [string | number, string][] = [[d.resolvedWithoutHuman, "solved by Rishta alone"], [d.ticketsRaised, "tickets raised"], [d.plansChanged, "plans changed"], [d.escalations, "passed to a person"], [d.humanClosed, "closed by salespeople"]];
+  const p = v.plan;
+  const noPerson = Math.round(((p.handledByRishta + p.leftAlone) / p.needAttention) * 100);
+  const stats: [string | number, string][] = [
+    [d.conversations, "conversations today"], [d.resolvedWithoutHuman, "solved with no person"], [d.ticketsRaised, "tickets raised"], [d.plansChanged, "plans changed"], [d.escalations, "passed to a person"],
+    [d.costPerConversationInr === null ? "–" : `₹${d.costPerConversationInr}`, "cost per conversation (estimate)"],
+  ];
   return (
     <div>
-      <h1 className="max-w-3xl text-[30px] font-extrabold leading-[1.14] text-navy">People get only what needs a person, and it arrives with the homework done.</h1>
-      <div className="mt-5 flex flex-wrap gap-x-10 gap-y-3 border-b border-line pb-4">
-        {stats.filter(([n]) => n).map(([big, small]) => <div key={small}><div className="text-3xl font-extrabold text-navy">{big}</div><div className="text-sm text-muted">{small}</div></div>)}
+      <h1 className="max-w-3xl text-[1.75rem] font-extrabold leading-[1.14] text-navy">{noPerson}% of tonight's {p.needAttention} decisions needed no person. The rest arrive with the homework done.</h1>
+      <div className="mt-4 flex flex-wrap gap-x-9 gap-y-3">
+        {stats.map(([big, small]) => <div key={small}><div className="text-3xl font-extrabold text-navy">{big}</div><div className="text-sm text-muted">{small}</div></div>)}
       </div>
-      <div className="mt-5 grid gap-x-8 gap-y-6 md:grid-cols-3">
+      <p className="mt-2 border-b border-line pb-3 text-sm text-sim">Past weeks, simulated: {num(d.simulated.contacted)} shops contacted, {pct(d.simulated.keepRate)} still active after 30 days, against {pct(d.simulated.controlRate)} of {num(d.simulated.controlN)} shops nobody contacted. Shops differ by problem, so read this with the Proof page.</p>
+      <div className="mt-4 grid gap-x-8 gap-y-6 md:grid-cols-3">
         <section>
           <h2 className="font-semibold text-navy">Needs a person now</h2>
           {v.needsHuman.map((h: any) => <div key={h.merchant_id} className="border-b border-line py-2"><div className="font-semibold">{h.name}</div><div className="text-sm text-muted">{h.summary}</div></div>)}
@@ -282,11 +303,11 @@ function Team({ v, selected }: { v: View; selected: string }) {
 }
 
 const STEPS = [
-  ["/today", "Overnight"], ["/shop", "One shop"], ["/talk", "Talk"], ["/result", "Result"], ["/proof", "Proof"], ["/why", "Why shops leave"], ["/team", "The team"],
+  ["/today", "Overnight"], ["/decisions", "Who and why"], ["/shop", "One shop"], ["/talk", "Talk"], ["/result", "Result"], ["/proof", "Proof"], ["/why", "Why shops leave"], ["/team", "The team"],
 ] as const;
 
 const SCRIPTS: Record<string, string[]> = {
-  M001: ["मेरे settlement में पैसे कम क्यों आए", "अच्छा समझ गया, मैं Soundbox रख लेता हूँ"],
+  M001: ["मेरे settlement में पैसे कम क्यों आए? मैं तो मशीन वापस करने की सोच रहा था", "अच्छा समझ गया, मैं Soundbox रख लेता हूँ"],
   M002: ["मेरा Soundbox का battery बार बार खत्म हो जाता है", "हाँ replacement भेज दीजिए"],
   M004: ["Soundbox का rent बहुत ज़्यादा लगता है", "हाँ ठीक है, यह plan कर दीजिए"],
 };
@@ -308,23 +329,26 @@ function Welcome({ start }: { start: () => void }) {
   );
 }
 
-function Today({ v }: { v: View }) {
+function Today({ v, pick }: { v: View; pick: (g: Group) => void }) {
   const [hover, setHover] = useState<Group | "idle" | null>(null);
   const p = v.plan;
   const counts: Record<Group, number> = { handled: p.handledByRishta, visit: p.salespersonVisits, callback: p.humanCallbacks, left: p.leftAlone };
   return (
     <div className="grid items-start gap-8 md:grid-cols-[minmax(0,1.6fr)_minmax(260px,1fr)]">
       <div>
-        <h1 className="text-[32px] font-extrabold leading-[1.14] text-navy">{num(p.checked)} shops checked last night. {p.needAttention} needed a decision.</h1>
-        <div className="mt-5"><ShopMap plan={p} active={hover && hover !== "idle" ? hover : null} onHover={setHover} /></div>
+        <h1 className="text-[1.75rem] font-extrabold leading-[1.14] text-navy">{num(p.checked)} shops checked last night, with no one asking. {p.needAttention} needed a decision.</h1>
+        <div className="mt-4 max-w-[calc((100dvh-285px)*2)]"><ShopMap plan={p} active={hover && hover !== "idle" ? hover : null} onHover={setHover} onPick={pick} /></div>
         <p className="mt-2 text-sm text-muted">Each dot is one shop. Grey shops need nothing today.</p>
       </div>
       <dl className="md:mt-14">
         {(Object.keys(GROUPS) as Group[]).map((g) => (
-          <div key={g} onMouseEnter={() => setHover(g)} onMouseLeave={() => setHover(null)} className="flex items-center gap-3 border-b border-line py-3">
-            <span className="h-3.5 w-3.5 rounded-full" style={{ background: GROUPS[g].color }} />
-            <dt className="flex-1 text-lg">{GROUPS[g].label}</dt>
-            <dd className="text-2xl font-bold">{counts[g]}</dd>
+          <div key={g}>
+            <button onClick={() => pick(g)} onMouseEnter={() => setHover(g)} onMouseLeave={() => setHover(null)} className="flex w-full items-center gap-3 border-b border-line py-3 text-left hover:bg-white">
+              <span className="h-3.5 w-3.5 rounded-full" style={{ background: GROUPS[g].color }} />
+              <dt className="flex-1 text-lg">{GROUPS[g].label}</dt>
+              <dd className="text-2xl font-bold">{counts[g]}</dd>
+              <span className="text-muted" aria-hidden>›</span>
+            </button>
           </div>
         ))}
       </dl>
@@ -332,68 +356,180 @@ function Today({ v }: { v: View }) {
   );
 }
 
-function Shop({ item }: { item: any }) {
-  const { brief, meta } = item;
-  const facts = Object.entries(brief.facts).filter(([k]) => k !== "firstName" && k !== "businessName").slice(0, 8);
+// Every decision of the night, by name. This is the manager's list.
+function Decisions({ v, list, tab, setTab, open }: { v: View; list: any; tab: Group; setTab: (g: Group) => void; open: (id: string) => void }) {
+  const p = v.plan;
+  const counts: Record<Group, number> = { handled: p.handledByRishta, visit: p.salespersonVisits, callback: p.humanCallbacks, left: p.leftAlone };
+  const channels: Record<Group, string[]> = { handled: ["soundbox", "app"], visit: ["salesperson_visit"], callback: ["human_callback"], left: [] };
+  const shown = list?.decided.filter((d: any) => channels[tab].includes(d.channel)) ?? [];
+  const left = list?.left ?? [];
+  const learned = left.filter((l: any) => l.kind !== "rule").length;
+  const check = p.checks?.find((c: any) => c.skip);
   return (
-    <div className="grid items-start gap-8 md:grid-cols-[minmax(0,1.2fr)_minmax(300px,1fr)]">
+    <div className="flex h-full flex-col">
+      <h1 className="text-[1.75rem] font-extrabold leading-[1.14] text-navy">
+        {tab === "left" ? `${p.leftAlone} shops left alone on purpose.` : tab === "handled" ? `Rishta handles ${p.handledByRishta} shops itself.` : tab === "visit" ? `${p.salespersonVisits} shops are worth a salesperson's time.` : `${p.humanCallbacks} shops need a person to call.`}
+      </h1>
+      <p className="text-muted">
+        {tab === "left" && check ? `${left.length - learned} by rule (recent contact, consent, low value). ${learned} because contact made things worse: ${pct(check.contactedKeep)} of contacted shops stayed, ${pct(check.holdoutKeep)} of uncontacted ones (simulated, ${check.contactedN} and ${check.holdoutN} shops). This switches on only once both groups pass 15 shops.` : "Press any shop to see why it got this decision."}
+      </p>
+      <div className="mt-3 flex flex-wrap gap-1" role="tablist" aria-label="Decision">
+        {(Object.keys(GROUPS) as Group[]).map((g) => <button key={g} role="tab" aria-selected={g === tab} onClick={() => setTab(g)} className={`rounded-full px-3 py-1 ${g === tab ? "bg-navy text-white" : "bg-white"}`}>{GROUPS[g].label} ({counts[g]})</button>)}
+      </div>
+      <div className="mt-3 min-h-0 flex-1 overflow-y-auto border-t border-line">
+        {tab === "left"
+          ? left.map((l: any) => (
+            <button key={l.id} onClick={() => open(l.id)} className="grid w-full gap-x-4 border-b border-line py-2 text-left hover:bg-white md:grid-cols-[minmax(0,2fr)_90px_minmax(0,5fr)]">
+              <span><b>{l.name}</b>, {l.city}</span>
+              <span className="text-sm font-semibold text-sim">{l.kind === "rule" ? "Rule" : l.kind === "learned" ? "Learned" : "Both"}</span>
+              <span className="text-sm text-muted">{l.reasons.map(plainReason).join(". ")}</span>
+            </button>
+          ))
+          : shown.map((d: any) => (
+            <button key={d.id} onClick={() => open(d.id)} className="grid w-full gap-x-4 border-b border-line py-2 text-left hover:bg-white md:grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,2fr)_90px_50px]">
+              <span><b>{d.name}</b>, {d.city}</span>
+              <span>{d.reason}</span>
+              <span className="text-muted">{d.approach}</span>
+              <span className="text-sm">{CHANNEL_SHORT[d.channel]}</span>
+              <span className="text-right text-sm text-muted" title="Stand-in risk score">{d.risk}</span>
+            </button>
+          ))}
+      </div>
+    </div>
+  );
+}
+
+function Rows({ rows }: { rows: [string, React.ReactNode][] }) {
+  return <dl>{rows.map(([k, val]) => <div key={k} className="flex justify-between gap-4 border-b border-line py-1.5"><dt className="text-muted">{k}</dt><dd className="text-right font-semibold">{val}</dd></div>)}</dl>;
+}
+
+function Shop({ item, v }: { item: any; v: View }) {
+  const { brief, meta } = item;
+  const order = Object.keys(FACTS);
+  const facts = Object.entries(brief.facts).filter(([k]) => k !== "firstName" && k !== "businessName").sort(([a], [b]) => order.indexOf(a) - order.indexOf(b));
+  const pb = v.playbook.find((p: any) => p.problem === brief.problem);
+  return (
+    <div className="grid items-start gap-x-8 gap-y-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,1fr)]">
       <div>
         <div className="text-muted">{meta.city} · {meta.reasonLabel}</div>
-        <h1 className="text-[32px] font-extrabold leading-tight text-navy">{meta.name}</h1>
-        <p className="mt-2 text-xl leading-snug">{meta.why}</p>
-        <h2 className="mt-6 text-lg font-semibold text-navy">What Rishta decided</h2>
-        <dl>
-          <div className="flex justify-between gap-4 border-b border-line py-2"><dt className="text-muted">How to help</dt><dd className="text-right font-semibold">{meta.approachLabel}</dd></div>
-          <div className="flex justify-between gap-4 border-b border-line py-2"><dt className="text-muted">Reach them through</dt><dd className="text-right font-semibold">{CHANNEL[brief.channel]}</dd></div>
-          <div className="flex justify-between gap-4 border-b border-line py-2"><dt className="text-muted">Goal</dt><dd className="text-right font-semibold">{brief.goal}</dd></div>
-        </dl>
+        <h1 className="text-[1.75rem] font-extrabold leading-tight text-navy">{meta.name}</h1>
+        <p className="mt-1 text-lg leading-snug">{meta.why}</p>
+        <h2 className="mt-3 font-semibold text-navy">What Rishta decided</h2>
+        <Rows rows={[["How to help", meta.approachLabel], ["Reach them through", CHANNEL[brief.channel]], ["Goal", brief.goal], ["Risk score (stand-in)", meta.risk]]} />
+        {pb && (
+          <>
+            <h2 className="mt-3 font-semibold text-navy">Why this approach</h2>
+            {pb.approaches.map((a: any) => <div key={a.id} className={`flex justify-between py-0.5 ${a.id === brief.approachId ? "font-semibold text-navy" : "text-muted"}`}><span>{a.id === brief.approachId ? "→ " : ""}{a.label}</span><span>{pct(a.keepRate)} kept, of {a.n}</span></div>)}
+            <p className="text-sm text-sim">Past results, simulated.{meta.approachShare !== null && meta.approachShare !== undefined ? ` Rishta sends ${pct(meta.approachShare)} of shops like this one here, and keeps testing the rest.` : ""}</p>
+          </>
+        )}
       </div>
-      <aside>
-        <h2 className="text-lg font-semibold text-navy">The AI may only say these numbers</h2>
+      <section>
+        <h2 className="font-semibold text-navy">The only numbers the AI may say</h2>
         <table className="mt-1 w-full"><tbody>
-          {facts.map(([k, val]) => { const f = fact(k, val); return <tr key={k} className="border-b border-line"><td className="py-1 pr-3">{f.label}</td><td className="py-1 text-right font-mono text-sm">{f.text}</td></tr>; })}
+          {facts.map(([k, val]) => { const f = fact(k, val); return <tr key={k} className="border-b border-line"><td className="py-0.5 pr-3 text-sm">{f.label}</td><td className="py-0.5 text-right font-mono text-sm">{f.text}</td></tr>; })}
         </tbody></table>
-      </aside>
+        <p className="mt-1 text-sm text-muted">Plus any figure a tool returns during the call. Every sentence is checked before it is spoken.</p>
+      </section>
+      <section>
+        <h2 className="font-semibold text-navy">The brief: what any agent receives</h2>
+        <div className="mt-1 text-sm font-semibold">May do</div>
+        <div className="flex flex-wrap gap-1">{brief.allowedActions.map((a: string) => <span key={a} className="rounded bg-white px-1.5 text-sm">{ACTIONS[a] ?? a}</span>)}</div>
+        <div className="mt-2 text-sm font-semibold">Must say</div>
+        <ul className="text-sm text-muted">{brief.mustSay.map((t: string) => <li key={t}>{t}</li>)}</ul>
+        <div className="mt-2 text-sm font-semibold">Must never</div>
+        <ul className="text-sm text-muted">{brief.mustNot.map((t: string) => <li key={t}>{t}</li>)}</ul>
+        <div className="mt-2 text-sm font-semibold">Pass to a person if</div>
+        <ul className="text-sm text-muted">{brief.escalateIf.map((t: string) => <li key={t}>{t}</li>)}</ul>
+        <div className="mt-2 text-sm font-semibold">Discount limit: ₹{brief.limits.maxDiscountInr} a month</div>
+        <details className="mt-2 text-sm"><summary className="cursor-pointer text-paytm-deep">See the raw contract</summary><pre className="mt-1 max-h-48 overflow-auto rounded bg-white p-2 font-mono text-xs">{JSON.stringify(brief, null, 2)}</pre></details>
+      </section>
     </div>
   );
 }
 
-function Talk({ shop, name, done }: { shop: string; name: string; done: boolean }) {
-  return (
-    <div className="flex h-full flex-col items-center justify-center">
-      <MerchantPhone shopId={shop} tips={done ? [] : SCRIPTS[shop] ?? []} onTip />
-      <span className="sr-only">You are {name}</span>
-    </div>
-  );
-}
-
-function Result({ item, settled, jump }: { item: any; settled: any[] | null; jump: () => void }) {
-  const { meta, outcome } = item;
-  if (!outcome) return <p className="text-lg">No result yet. Go back and finish the conversation.</p>;
+function LeftShop({ shop }: { shop: any }) {
   return (
     <div className="max-w-2xl">
-      <div className="text-2xl font-bold text-kept">✓ {OUTCOME[outcome.outcome]}</div>
-      <h1 className="text-[32px] font-extrabold leading-tight text-navy">{meta.name}</h1>
+      <div className="text-muted">{shop.city} · Left alone on purpose</div>
+      <h1 className="text-[1.75rem] font-extrabold leading-tight text-navy">{shop.name}</h1>
+      <p className="mt-2 text-xl leading-snug">Rishta chose not to contact this shop today.</p>
+      <ul className="mt-3 space-y-2">
+        {shop.left.reasons.map((r: string) => <li key={r} className="border-l-4 border-leftalone pl-3 text-lg">{plainReason(r)}</li>)}
+      </ul>
+      <p className="mt-3 text-muted">The shop still gets normal service: support and Soundbox questions work as usual. Only proactive outreach is held back.</p>
+    </div>
+  );
+}
+
+function NoDecision({ shop, id }: { shop: any; id: string }) {
+  return (
+    <div className="max-w-2xl">
+      <h1 className="text-[1.75rem] font-extrabold leading-tight text-navy">{shop ? shop.name : `No shop called ${id}`}</h1>
+      <p className="mt-2 text-xl">{shop ? "Rishta has no plan for this shop today: nothing needs doing, or it is in the no-contact control group." : "Check the link, or pick a shop from the list."}</p>
+    </div>
+  );
+}
+
+// What the manager is doing while the shopkeeper talks.
+function LivePanel({ shop }: { shop: any }) {
+  const { brief, meta, live } = shop;
+  const actions = (live?.actions ?? []).filter((a: string) => a !== "recordOutcome");
+  return (
+    <aside className="w-[300px] shrink-0 self-center">
+      <div className="text-sm font-semibold text-paytm-deep">Rishta, live</div>
+      <h2 className="text-lg font-bold leading-snug text-navy">{brief.goal}</h2>
+      <ol className="mt-2 space-y-1.5">
+        <li>✓ Brief written overnight: {meta.approachLabel}</li>
+        <li>✓ Reached through {CHANNEL[brief.channel].toLowerCase()}</li>
+        {live && <li className="rise">✓ AI disclosed, no-OTP line said</li>}
+        {live?.numbersChecked > 0 && <li className="rise">✓ {live.numbersChecked} {live.numbersChecked === 1 ? "number" : "numbers"} checked before speaking</li>}
+        {live?.guardEvents.length > 0 && <li className="rise text-sim">✋ {live.guardEvents.length} blocked by the guard, never spoken</li>}
+        {actions.map((a: string, i: number) => <li key={i} className="rise">✓ {ACTIONS[a] ?? a}</li>)}
+        {shop.outcome && <li className="rise font-semibold text-navy">Result: {OUTCOME[shop.outcome.outcome]![0]}</li>}
+      </ol>
+    </aside>
+  );
+}
+
+function Talk({ shop, id }: { shop: any; id: string }) {
+  return (
+    <div className="flex h-full items-center justify-center gap-10">
+      <MerchantPhone shopId={id} tips={shop.outcome ? [] : SCRIPTS[id] ?? []} onTip />
+      <div className="hidden lg:block"><LivePanel shop={shop} /></div>
+    </div>
+  );
+}
+
+function Result({ item, settled }: { item: any; settled: any[] | null }) {
+  const { meta, outcome } = item;
+  if (!outcome) return <p className="text-lg">No result yet. Go back and finish the conversation.</p>;
+  const [label, tone] = OUTCOME[outcome.outcome]!;
+  return (
+    <div className="max-w-2xl">
+      <div className={`text-2xl font-bold ${tone === "good" ? "text-kept" : tone === "bad" ? "text-callback" : "text-navy"}`}>{tone === "good" ? "✓ " : ""}{label}</div>
+      <h1 className="text-[1.75rem] font-extrabold leading-tight text-navy">{meta.name}</h1>
       <p className="mt-2 text-xl leading-snug">{outcome.summary}</p>
       {outcome.reasons.map((r: any, i: number) => <p key={i} className="mt-2 text-lg text-muted">"{r.quote}"</p>)}
-      {outcome.numbersVerified && <p className="mt-2 font-semibold text-kept">Every number it spoke was checked against this shop's data.</p>}
-      {!settled?.length
-        ? <button onClick={jump} className="mt-6 rounded-xl bg-navy px-6 py-3.5 text-lg font-semibold text-white">Jump 30 days: did they stay?</button>
-        : settled.map((r) => (
-          <div key={r.merchantId} className="rise mt-6 border-l-4 border-paytm pl-4">
-            <p className="text-xl font-semibold">30 days later (simulated): {r.kept ? "still active" : "they left"}.</p>
-            <p className="mt-1">"{r.approach}" now has {r.resultsAfter} results, up from {r.resultsBefore}. Tonight's plan uses it.</p>
-          </div>
-        ))}
+      {outcome.numbersChecked > 0 && outcome.numbersVerified && <p className="mt-2 font-semibold text-kept">{outcome.numbersChecked === 1 ? "The number it spoke was" : `All ${outcome.numbersChecked} numbers it spoke were`} checked against this shop's data first.</p>}
+      {settled === null && <p className="mt-4 text-muted">What the shop says isn't the measure. Rishta counts a shop as kept only if it is still active 30 days later. On this test bench the simulator answers; in production it reads Paytm's merchant status.</p>}
+      {settled?.length === 0 && <p className="mt-4 text-muted">This result was already counted.</p>}
+      {settled?.map((r) => (
+        <div key={r.merchantId} className="rise mt-5 border-l-4 border-paytm pl-4">
+          <p className="text-xl font-semibold">30 days later (simulated): {r.kept ? "still active" : "they left"}.</p>
+          <p className="mt-1">"{r.approach}" now has {r.resultsAfter} results, up from {r.resultsBefore}. Tonight's plan uses it.</p>
+        </div>
+      ))}
     </div>
   );
 }
 
 const DO: Record<string, string> = {
-  "/today": "Look at the map. Rishta made all these decisions on its own. Then continue.",
-  "/shop": "This is why Rishta picked this shop. Press the button to contact them.",
+  "/today": "Rishta made all these decisions on its own. Press a colour or a dot to see the shops by name.",
+  "/decisions": "This is the manager's list. Press any shop, or see who it left alone and why.",
+  "/shop": "This is the brief. In production the nudge goes out by itself at 9am; here you trigger it to watch.",
   "/talk": "You are the shopkeeper now. Hold the mic and speak Hindi, Tamil, Kannada or another Indian language, or tap the line.",
-  "/result": "The conversation is done. Press Jump 30 days to see if the shop stayed.",
+  "/result": "Rishta logged this itself. Next, see if the shop really stayed.",
   "/proof": "This is the evidence that the approach works. Then continue.",
   "/why": "Conversations show the sales team why shops really leave, including what you just said.",
   "/team": "That's the whole loop. Try another shop, or scan a code to open it on your phone.",
@@ -406,7 +542,11 @@ export default function Flow() {
   const [settled, setSettled] = useState<any[] | null>(null);
   const [error, setError] = useState("");
   const [path, query = ""] = url.split("?");
-  const shop = new URLSearchParams(query).get("shop") ?? "M001";
+  const params = new URLSearchParams(query);
+  const shop = params.get("shop") ?? "M001";
+  const tab = TAB[params.get("tab") ?? "talk"] ?? "handled";
+  const [list, setList] = useState<any>(null);
+  const [item, setItem] = useState<any>(undefined);
 
   const go = useCallback((to: string) => {
     history.pushState(null, "", to);
@@ -418,15 +558,20 @@ export default function Flow() {
     addEventListener("popstate", back);
     return () => removeEventListener("popstate", back);
   }, []);
+  const loadShop = useCallback(() => {
+    void fetch(`/api/shop/${shop}`).then((r) => (r.ok ? r.json() : null)).then(setItem);
+  }, [shop]);
   const load = useCallback(() => {
     void fetch("/api/console").then((r) => r.json()).then(setV);
-  }, []);
+    void fetch("/api/decisions").then((r) => r.json()).then(setList);
+    loadShop();
+  }, [loadShop]);
   useEffect(load, [load]);
   useEvents((e) => {
     if (e.type === "changed") {
       load();
       setFlash(true);
-      setTimeout(() => setFlash(false), 1500);
+      setTimeout(() => setFlash(false), 2500);
     }
   });
 
@@ -438,6 +583,7 @@ export default function Flow() {
   const begin = async () => {
     await fetch("/api/reset", { method: "POST" });
     setSettled(null);
+    load();
     go("/today");
   };
   const contact = async () => {
@@ -450,21 +596,37 @@ export default function Flow() {
     if (!res.ok) setError(body.error ?? "Couldn't reach the shop. Try again.");
   };
   const jump = async () => setSettled((await (await fetch("/api/demo/fast-forward", { method: "POST" })).json()).settled);
-  const otherShop = (id: string) => {
-    setSettled(null);
-    go(`/shop?shop=${id}`);
-  };
 
   if (path === "/" || !STEPS.some(([p]) => p === path)) return <Welcome start={() => void begin()} />;
   if (!v) return <div className="p-6">Loading…</div>;
-  const item = v.queue.find((q: any) => q.brief.merchantId === shop) ?? v.queue[0];
   const index = STEPS.findIndex(([p]) => p === path);
+  const talkable = !!item?.brief && ["soundbox", "app"].includes(item.brief.channel);
+  const finished = !!item?.outcome;
+  const needsShop = ["/shop", "/talk", "/result"].includes(path);
+  const status = path === "/talk" && finished ? "Conversation finished. Press See what happened."
+    : path === "/result" && !finished ? "No result yet. Go back and finish the conversation."
+    : path === "/result" && settled !== null ? "That result now feeds tonight's plan. Press See the proof."
+    : path === "/shop" && item?.left ? "Rishta decided to leave this shop alone. No one presses anything."
+    : path === "/shop" && item?.brief && !talkable ? "Rishta won't contact this shop itself. It goes to a person, with this brief."
+    : path === "/shop" && item?.blocked ? `Rishta will not contact this shop: ${item.blocked.toLowerCase()}.`
+    : DO[path];
   const withShop = (p: string) => `${p}?shop=${shop}`;
+  const tabName = (g: Group) => Object.keys(TAB).find((k) => TAB[k] === g)!;
+  const toList = (g: Group) => go(`/decisions?tab=${tabName(g)}`);
+  const open = (id: string) => { setSettled(null); go(`/shop?shop=${id}`); };
+  const shopNext = (): { label: string; run: () => void; off?: boolean } | null => {
+    if (!item?.brief) return { label: "Back to the list", run: () => toList(item?.left ? "left" : "handled") };
+    if (finished) return { label: "See what happened", run: () => go(withShop("/result")) };
+    if (!talkable) return { label: "See the team's list", run: () => go(withShop("/team")) };
+    if (item.blocked) return { label: "Back to the list", run: () => toList("handled") };
+    return { label: `Send the nudge to ${item.meta.name}`, run: () => void contact() };
+  };
   const next: { label: string; run: () => void; off?: boolean } | null =
-    path === "/today" ? { label: "See the first shop", run: () => go(withShop("/shop")) }
-    : path === "/shop" ? { label: `Contact ${item.meta.name}`, run: () => void contact() }
-    : path === "/talk" ? { label: item.outcome ? "See what happened" : "Finish the conversation first", run: () => go(withShop("/result")), off: !item.outcome }
-    : path === "/result" ? { label: settled?.length ? "See the proof" : "Jump 30 days first", run: () => go(withShop("/proof")), off: !settled?.length }
+    path === "/today" ? { label: "See who and why", run: () => toList("handled") }
+    : path === "/decisions" ? { label: "See the first shop", run: () => open("M001") }
+    : path === "/shop" ? shopNext()
+    : path === "/talk" ? { label: finished ? "See what happened" : "Finish the conversation first", run: () => go(withShop("/result")), off: !finished }
+    : path === "/result" ? (settled === null ? { label: "Jump 30 days: did they stay?", run: () => void jump(), off: !finished } : { label: "See the proof", run: () => go(withShop("/proof")) })
     : path === "/proof" ? { label: "Why shops leave", run: () => go(withShop("/why")) }
     : path === "/why" ? { label: "The team", run: () => go(withShop("/team")) }
     : null;
@@ -480,13 +642,17 @@ export default function Flow() {
         <span className="hidden text-sm text-sim md:inline">Simulated data</span>
         <button onClick={() => void startOver()} className="text-sm text-muted underline">Start over</button>
       </header>
-      <div className="bg-navy px-4 py-2.5 font-medium text-white md:px-6 md:text-lg" role="status">{path === "/talk" && item?.outcome ? "Conversation finished. Press See what happened." : path === "/result" && settled?.length ? "That result now feeds tonight's plan. Press See the proof." : DO[path]}</div>
-      <main key={path} className="rise min-h-0 flex-1 overflow-y-auto px-4 py-5 md:px-6">
+      <div className="bg-navy px-4 py-2.5 font-medium text-white md:px-6 md:text-lg" role="status">{status}</div>
+      <main key={path} className="rise min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-6">
         <div className="mx-auto h-full max-w-6xl">
-        {path === "/today" && <Today v={v} />}
-        {path === "/shop" && <Shop item={item} />}
-        {path === "/talk" && <Talk shop={shop} name={item.meta.name} done={!!item.outcome} />}
-        {path === "/result" && <Result item={item} settled={settled} jump={() => void jump()} />}
+        {needsShop && item === undefined && <p>Loading…</p>}
+        {needsShop && item !== undefined && !item?.brief && !item?.left && <NoDecision shop={item} id={shop} />}
+        {path === "/today" && <Today v={v} pick={toList} />}
+        {path === "/decisions" && <Decisions v={v} list={list} tab={tab} setTab={toList} open={open} />}
+        {path === "/shop" && item?.left && !item.brief && <LeftShop shop={item} />}
+        {path === "/shop" && item?.brief && <Shop item={item} v={v} />}
+        {path === "/talk" && item?.brief && <Talk shop={item} id={shop} />}
+        {path === "/result" && item?.brief && <Result item={item} settled={settled} />}
         {path === "/proof" && <Proof v={v} />}
         {path === "/why" && <Why v={v} flash={flash} />}
         {path === "/team" && <Team v={v} selected={shop} />}
@@ -499,8 +665,8 @@ export default function Flow() {
         {next
           ? <button onClick={next.run} disabled={next.off} className={`rounded-xl px-7 py-3 text-lg font-semibold ${next.off ? "bg-idle text-muted" : "bg-navy text-white"}`}>{next.label}</button>
           : <>
-            <button onClick={() => otherShop("M002")} className="rounded-xl border border-navy px-5 py-3 font-semibold text-navy">Try Sharma Medicos</button>
-            <button onClick={() => otherShop("M004")} className="rounded-xl border border-navy px-5 py-3 font-semibold text-navy">Try Gupta Snacks</button>
+            <button onClick={() => open("M002")} className="rounded-xl border border-navy px-5 py-3 font-semibold text-navy">Try Sharma Medicos</button>
+            <button onClick={() => open("M004")} className="rounded-xl border border-navy px-5 py-3 font-semibold text-navy">Try Gupta Snacks</button>
             <button onClick={() => void startOver()} className="rounded-xl bg-navy px-6 py-3 font-semibold text-white">Start over</button>
           </>}
       </footer>
