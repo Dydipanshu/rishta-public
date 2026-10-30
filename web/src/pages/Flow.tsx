@@ -392,7 +392,7 @@ function Result({ item, settled, jump }: { item: any; settled: any[] | null; jum
 const DO: Record<string, string> = {
   "/today": "Look at the map. Rishta made all these decisions on its own. Then continue.",
   "/shop": "This is why Rishta picked this shop. Press the button to contact them.",
-  "/talk": "You are the shopkeeper now. Listen, then hold the mic button and speak, or tap the suggested line.",
+  "/talk": "You are the shopkeeper now. Hold the mic and speak Hindi, Tamil, Kannada or another Indian language, or tap the line.",
   "/result": "The conversation is done. Press Jump 30 days to see if the shop stayed.",
   "/proof": "This is the evidence that the approach works. Then continue.",
   "/why": "Conversations show the sales team why shops really leave, including what you just said.",

@@ -19,7 +19,9 @@ import { heardClearly } from "../voice/stt.js";
 import { settleOutcomes } from "../engine/settle.js";
 import { recordOutcome } from "../engine/outcomes.js";
 import type { ChannelGateway, EventBus } from "../ports.js";
+import { LANGUAGES, languageOfText } from "../voice/languages.js";
 import type { makeStt } from "../voice/stt.js";
+import type { makeTranslate } from "../voice/translate.js";
 import type { makeTts } from "../voice/tts.js";
 import { bearer, issueMerchantToken, merchantFromToken, validKey } from "./auth.js";
 import { metrics, registry } from "./metrics.js";
@@ -31,6 +33,7 @@ export interface AppDeps extends AgentDeps {
   bus: EventBus;
   gateway: ChannelGateway;
   stt: ReturnType<typeof makeStt>;
+  translate: ReturnType<typeof makeTranslate>;
   tts: ReturnType<typeof makeTts>;
   kickRelay: () => void;
 }
@@ -51,7 +54,7 @@ const TalkText = z.object({ text: z.string().min(1).max(500) });
 const SessionRequest = z.object({ merchantId: z.string(), ttlSec: z.number().int().max(3600).default(900) });
 
 export async function buildApp(d: AppDeps) {
-  const { s, sql, core, bus, tts, stt } = d;
+  const { s, sql, core, bus, tts, stt, translate } = d;
   const production = s.APP_ENV === "production";
   const app = Fastify({ logger: { level: s.LOG_LEVEL, redact: ["req.headers.authorization"] }, forceCloseConnections: "idle" });
   await app.register(fastifyMultipart, { limits: { fileSize: 5_000_000 } });
@@ -198,13 +201,21 @@ export async function buildApp(d: AppDeps) {
     let filler: NodeJS.Timeout | undefined;
 
     try {
-      if (isNew) send({ type: "say", ...say(conv.opening()) });
-
-      const text = audio ? await stt(audio.data, audio.type) : typed;
+      const heard = audio ? await stt(audio.data, audio.type, conv.language) : { text: typed, language: languageOfText(typed, conv.language) };
+      const { text, language } = heard;
       const sttMs = performance.now() - started;
-      if (!heardClearly(text)) {
+      conv.language = language;
+      const local = !!LANGUAGES[language];
+      // Everything is checked in Hindi first, then translated, so the guard covers every language.
+      const speak = async (line: string) => (local ? { text: await translate(line, language), audio: "" } : say(line));
+      const voiced = async (line: string) => {
+        const out = await speak(line);
+        return local ? { text: out.text, audio: tts.prepare(out.text, language) } : out;
+      };
+      if (isNew) send({ type: "say", ...(await voiced(conv.opening())) });
+      if (!heardClearly(text, language)) {
         await conv.save();
-        send({ type: "say", ...say("जी, मुझे सुनाई नहीं दिया। कृपया फिर से बोलिए।") });
+        send({ type: "say", ...(await voiced("जी, मुझे सुनाई नहीं दिया। कृपया फिर से बोलिए।")) });
         send({ type: "end" });
         reply.raw.end();
         return;
@@ -214,12 +225,19 @@ export async function buildApp(d: AppDeps) {
       let spoke = false;
       let first = 0;
       const current = conv;
-      if (!isNew) filler = setTimeout(() => { if (!spoke) send({ type: "say", ...say(FILLERS[current.transcript.length % FILLERS.length]!), filler: true }); }, 500);
+      if (!isNew && !local) filler = setTimeout(() => { if (!spoke) send({ type: "say", ...say(FILLERS[current.transcript.length % FILLERS.length]!), filler: true }); }, 500);
+      // Translations run side by side but are sent in order.
+      let queue = Promise.resolve();
       for await (const chunk of conv.reply(text)) {
         spoke = true;
-        first ||= performance.now() - started;
-        send({ type: "say", ...say(chunk) });
+        const line = voiced(chunk);
+        queue = queue.then(async () => {
+          const out = await line;
+          first ||= performance.now() - started;
+          send({ type: "say", ...out });
+        });
       }
+      await queue;
       clearTimeout(filler);
       metrics.firstReply.observe(first);
       metrics.turns.inc({ result: "ok" });

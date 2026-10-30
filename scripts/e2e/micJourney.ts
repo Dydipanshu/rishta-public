@@ -13,8 +13,8 @@ const check = (ok: boolean, what: string) => {
   console.log(`${ok ? "PASS" : "FAIL"} ${what}`);
   if (!ok) failures.push(what);
 };
-const clip = async (text: string) =>
-  ((await c.textToSpeech.convert({ text, language_code: "hi-IN", model: "bulbul:v4-flash", speaker: "aarti_hi_customer", speech_sample_rate: 24000, output_audio_codec: "wav" } as never)) as { audios: string[] }).audios[0]!;
+const clip = async (text: string, language_code = "hi-IN", speaker = "aarti_hi_customer") =>
+  ((await c.textToSpeech.convert({ text, language_code, model: "bulbul:v4-flash", speaker, speech_sample_rate: 24000, output_audio_codec: "wav" } as never)) as { audios: string[] }).audios[0]!;
 const noise = () => {
   const n = 32000;
   const b = Buffer.alloc(44 + n * 2);
@@ -117,6 +117,22 @@ await page.getByRole("button", { name: "See what happened" }).waitFor({ timeout:
 await next("See what happened");
 check((await body()).includes("Sharma"), "a second shop works end to end");
 await page.screenshot({ path: `${SHOTS}/sharma.png` });
+
+// Same shop, different languages: replies must come back in the language spoken.
+for (const [line, code, speaker, script, name] of [["ನನ್ನ settlement ಯಾಕೆ ಕಡಿಮೆ ಬಂತು", "kn-IN", "chaitra_kn_conversation", /\p{Script=Kannada}/u, "Kannada"], ["என் settlement ஏன் குறைவாக வந்தது", "ta-IN", "aravind_ta_ads", /\p{Script=Tamil}/u, "Tamil"]] as const) {
+  await page.goto("http://localhost:3000/");
+  await page.getByRole("button", { name: "Start", exact: true }).click();
+  await next("See the first shop");
+  await next(/^Contact/);
+  await page.getByText("Tap to say this").first().waitFor({ timeout: 30_000 });
+  await page.waitForTimeout(9000);
+  await hold(await clip(line, code, speaker));
+  await page.waitForTimeout(22_000);
+  const replies = await page.locator("div.rounded-tl-sm").allInnerTexts();
+  check(script.test(replies.at(-1) ?? ""), `${name} speech gets a ${name} reply: ${replies.at(-1)}`);
+  check(replies.join(" ").includes("44.84"), `${name} reply keeps the exact amount`);
+  await page.screenshot({ path: `${SHOTS}/${name}.png` });
+}
 
 for (const [path, text] of [["/voices", "Pick Rishta"], ["/sales", "Your list for today"], ["/phone/M001", "Ramesh General Store"]] as const) {
   await page.goto(`http://localhost:3000${path}`);

@@ -7,6 +7,7 @@ import { openAIAdapter } from "./agent/llmAdapter.js";
 import { TOPICS } from "./contracts/events.js";
 import { openSql } from "./data/sql.js";
 import { makeStt } from "./voice/stt.js";
+import { makeTranslate } from "./voice/translate.js";
 import { makeTts } from "./voice/tts.js";
 
 // The only file that picks implementations. Plugging Rishta in elsewhere means changing this list.
@@ -22,6 +23,7 @@ export async function compose() {
     gateway: benchGateway(bus),
     llm: openAIAdapter(s.OPENAI_API_KEY, s.OPENAI_MODEL, s.OPENAI_REASONING_EFFORT, s.OPENAI_BASE_URL),
     stt: makeStt(s),
+    translate: makeTranslate(s),
     tts: makeTts(s),
   };
 }

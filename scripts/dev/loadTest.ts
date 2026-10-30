@@ -23,7 +23,7 @@ const llm: LLMAdapter = {
 };
 const tts = { prepare: () => "/x", verify: () => null, prewarm: async () => {}, stream: async function* () {} };
 const bus = memoryBus();
-const { app } = await buildApp({ s, sql, core: benchCore(sql), llm, bus, gateway: benchGateway(bus), stt: (async () => "") as never, tts: tts as never, kickRelay: () => {} });
+const { app } = await buildApp({ translate: async (t: string) => t, s, sql, core: benchCore(sql), llm, bus, gateway: benchGateway(bus), stt: (async () => "") as never, tts: tts as never, kickRelay: () => {} });
 await app.listen({ port: 3009 });
 await resetLive(sql);
 

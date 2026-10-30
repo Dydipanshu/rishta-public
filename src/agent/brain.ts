@@ -69,6 +69,7 @@ interface ConversationState {
   actions: ActionName[];
   guardEvents: string[];
   numbersVerified: boolean;
+  language?: string;
   ended: boolean;
   outcome: OutcomeKind | null;
   summary: string;
@@ -135,6 +136,8 @@ export class Conversation {
   }
 
   get id() { return this.state.id; }
+  get language() { return this.state.language ?? "hi-IN"; }
+  set language(value: string) { this.state.language = value; }
   get transcript() { return this.state.transcript; }
   get actions() { return this.state.actions; }
   get guardEvents() { return this.state.guardEvents; }

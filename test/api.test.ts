@@ -33,7 +33,7 @@ describe("production API", () => {
 
   async function setup(s: Settings) {
     const bus = memoryBus();
-    return (await buildApp({ s, sql, core: benchCore(sql), llm, bus, gateway: benchGateway(bus), stt: (async () => "") as never, tts: tts as never, kickRelay: () => {} })).app;
+    return (await buildApp({ s, sql, core: benchCore(sql), llm, bus, gateway: benchGateway(bus), stt: (async () => ({ text: "", language: "hi-IN" })) as never, translate: async (t: string) => t, tts: tts as never, kickRelay: () => {} })).app;
   }
 
   beforeAll(async () => {

@@ -98,3 +98,9 @@
   turns:
     - "सब ठीक है"
   expect: { outcome: no_response, mustNotContain: ["44.84"] }
+
+- name: Kannada question still gets the exact fee
+  merchant: M001
+  turns:
+    - "ನನ್ನ settlement ಯಾಕೆ ಕಡಿಮೆ ಬಂತು?"
+  expect: { mustContain: ["44.84"] }

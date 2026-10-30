@@ -1,3 +1,4 @@
+import { languageOfText, nextLanguage, trustDetection } from "../src/voice/languages.js";
 import { heardClearly } from "../src/voice/stt.js";
 import { describe, expect, it } from "vitest";
 import { hindiNumber, speakable } from "../src/voice/speakNumbers.js";
@@ -41,6 +42,27 @@ describe("speaking numbers", () => {
   });
   it("reads lakhs", () => expect(hindiNumber(140000)).toBe("एक लाख चालीस हज़ार"));
   it("keeps English as it is", () => expect(speakable("Your fee was ₹38.")).toBe("Your fee was ₹38."));
+});
+
+describe("languages", () => {
+  it("switches only on a confident full phrase", () => {
+    expect(trustDetection("ನನ್ನ settlement ಕಡಿಮೆ", "kn-IN", 1, "hi-IN")).toBe(true);
+    expect(trustDetection("ಠಾ೦", "kn-IN", 0.6, "hi-IN")).toBe(false);
+    expect(trustDetection("ಹೌದು", "kn-IN", 0.6, "kn-IN")).toBe(true);
+    expect(trustDetection("sab theek", "ta-IN", 1, "hi-IN")).toBe(false);
+  });
+  it("keeps the language through short English", () => {
+    expect(nextLanguage("settlement", "en-IN", "ta-IN")).toBe("ta-IN");
+    expect(nextLanguage("सब ठीक है", "hi-IN", "ta-IN")).toBe("hi-IN");
+  });
+  it("reads typed text by script", () => {
+    expect(languageOfText("என் settlement", "hi-IN")).toBe("ta-IN");
+    expect(languageOfText("ठीक है", "ta-IN")).toBe("hi-IN");
+  });
+  it("accepts the conversation's own script only", () => {
+    expect(heardClearly("ನನ್ನ settlement", "kn-IN")).toBe(true);
+    expect(heardClearly("ನನ್ನ settlement", "ta-IN")).toBe(false);
+  });
 });
 
 describe("speech that was misheard", () => {

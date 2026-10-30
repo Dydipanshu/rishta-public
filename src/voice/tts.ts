@@ -2,6 +2,7 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { SarvamAIClient } from "sarvamai";
 import type { Settings } from "../../config/settings.js";
+import { HINDI, LANGUAGES } from "./languages.js";
 import { speakable } from "./speakNumbers.js";
 
 const CACHE_DIR = "data/tts-cache";
@@ -13,16 +14,24 @@ export function makeTts(s: Settings) {
   const hashOf = (spoken: string) => createHash("sha1").update(`${s.SARVAM_TTS_MODEL}|${s.SARVAM_TTS_VOICE}|${spoken}`).digest("hex").slice(0, 20);
   const sign = (text: string) => createHmac("sha256", s.SESSION_SECRET).update(text).digest();
 
-  const open = (text: string) =>
-    sarvam.textToSpeech.convertStream({
+  // A payload is "language|line", so the language travels inside the signed URL.
+  const unpack = (payload: string) => {
+    const at = payload.indexOf("|");
+    return { language: payload.slice(0, at), text: payload.slice(at + 1) };
+  };
+
+  const open = (payload: string) => {
+    const { language, text } = unpack(payload);
+    return sarvam.textToSpeech.convertStream({
       text,
-      language_code: "hi-IN",
+      language_code: language as "hi-IN",
       model: s.SARVAM_TTS_MODEL as "bulbul:v4-flash",
-      speaker: s.SARVAM_TTS_VOICE as "ishita_enhi_customer",
+      speaker: (LANGUAGES[language]?.voice ?? s.SARVAM_TTS_VOICE) as "ishita_enhi_customer",
       enable_preprocessing: true,
       speech_sample_rate: 24000,
       output_audio_codec: "mp3",
     });
+  };
 
   const store = (hash: string, chunks: Buffer[]) => {
     // Written then renamed, so a reader never sees half a file.
@@ -33,8 +42,9 @@ export function makeTts(s: Settings) {
 
   return {
     // The signed URL carries the line itself, so any server can play it.
-    prepare(text: string) {
-      const spoken = speakable(text);
+    prepare(text: string, language = HINDI) {
+      // Sarvam reads digits well in other languages; only Hindi needs our own wording.
+      const spoken = `${language}|${language === HINDI ? speakable(text) : text}`;
       const t = Buffer.from(spoken).toString("base64url");
       return `/api/tts/${hashOf(spoken)}?t=${t}&s=${sign(spoken).toString("base64url")}`;
     },
@@ -48,7 +58,7 @@ export function makeTts(s: Settings) {
 
     async prewarm(lines: string[]) {
       for (const line of lines) {
-        const spoken = speakable(line);
+        const spoken = `${HINDI}|${speakable(line)}`;
         const hash = hashOf(spoken);
         if (existsSync(fileFor(hash))) continue;
         const res = await open(spoken);
