@@ -18,7 +18,7 @@ export default function Voices() {
           <li key={id} className="border-b border-line py-3">
             <div className="font-semibold">{i + 1}. {id}</div>
             <div className="text-sm text-muted">{note}</div>
-            <audio controls preload="none" src={`/voices/${id}.mp3`} className="mt-1 w-full" />
+            <audio controls preload="none" src={`/voice-samples/${id}.mp3`} className="mt-1 w-full" />
           </li>
         ))}
       </ol>
