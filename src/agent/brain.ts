@@ -15,7 +15,7 @@ const FALLBACK = "जी, मैं check करके बताती हूँ
 const CLOSING_LINES: Record<string, string> = {
   scheduleHumanCallback: "जी, Paytm से एक व्यक्ति आपको call करेगा। धन्यवाद।",
   recordOptOut: "जी, अब हम आपसे संपर्क नहीं करेंगे। धन्यवाद।",
-  recordOutcome: "धन्यवाद जी।",
+  recordOutcome: "बहुत अच्छा जी, धन्यवाद। आपका दिन शुभ हो।",
 };
 
 export const openingLine = (firstName: string) => `नमस्ते ${firstName} जी, मैं Paytm की AI assistant हूँ। Paytm कभी OTP या PIN नहीं माँगता।`;

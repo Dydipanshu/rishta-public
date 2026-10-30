@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+@theme {
+  --color-paytm: #00baf2;
+  --color-navy: #002e6e;
+}
+
+body {
+  font-family: system-ui, "Noto Sans Devanagari", sans-serif;
+  background: #eef3f8;
+  color: #0f2540;
+}

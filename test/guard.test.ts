@@ -36,7 +36,7 @@ describe("speaking numbers", () => {
   it("reads money the Hindi way", () => {
     expect(speakable("कुल ₹44.84 कटे।")).toBe("कुल चौवालीस रुपये चौरासी पैसे कटे।");
     expect(speakable("₹9,500 और ₹38")).toBe("नौ हज़ार पाँच सौ रुपये और अड़तीस रुपये");
-    expect(speakable("4 payments")).toBe("चार payments");
+    expect(speakable("आपके 4 payments")).toBe("आपके चार payments");
   });
   it("reads lakhs", () => expect(hindiNumber(140000)).toBe("एक लाख चालीस हज़ार"));
   it("keeps English as it is", () => expect(speakable("Your fee was ₹38.")).toBe("Your fee was ₹38."));

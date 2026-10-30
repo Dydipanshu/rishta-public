@@ -17,7 +17,12 @@
     "spike:tts": "tsx scripts/spike/ttsVoices.ts",
     "spike:stt": "tsx scripts/spike/sttClips.ts",
     "spike:latency": "tsx scripts/spike/latency.ts",
-    "spike:ttsspeed": "tsx scripts/spike/ttsSpeed.ts"
+    "spike:ttsspeed": "tsx scripts/spike/ttsSpeed.ts",
+    "dev": "concurrently -k -n api,web \"tsx watch src/server/index.ts\" \"vite\"",
+    "build": "vite build",
+    "start": "tsx src/server/index.ts",
+    "reset": "tsx scripts/resetDemo.ts",
+    "typecheck:web": "tsc --noEmit -p web"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

@@ -36,6 +36,7 @@ export function feeFacts(m: Merchant, day: number) {
 export function deviceFacts(m: Merchant, day: number) {
   const f = buildFeatures(m, day);
   return {
+    periodDays: 7,
     batteryAlerts7Days: f.battery7,
     offlineHours7Days: round(f.offline7),
     failedPaymentsPct7Days: round(f.failRate7 * 100),
@@ -55,7 +56,7 @@ export function rentFacts(m: Merchant, day: number) {
 
 export function settlementFacts(m: Merchant, day: number) {
   const f = buildFeatures(m, day);
-  return { avgSettlementHours7Days: round(f.avgDelay7), openTickets: f.openTickets };
+  return { periodDays: 7, avgSettlementHours7Days: round(f.avgDelay7), openTickets: f.openTickets };
 }
 
 export function factsFor(m: Merchant, day: number, problem: ReasonCode, headsUp: boolean): Record<string, number | string> {
