@@ -1,0 +1,21 @@
+# Record each line as a .wav or .webm in this folder, with some shop noise behind you.
+- { file: 01.wav, text: "mere settlement mein paise kam kyun aaye" }
+- { file: 02.wav, text: "yeh fee kya hai mujhe samajh nahi aaya" }
+- { file: 03.wav, text: "main soundbox wapas karna chahta hoon" }
+- { file: 04.wav, text: "theek hai phir main soundbox rakh leta hoon" }
+- { file: 05.wav, text: "mera device baar baar band ho jata hai" }
+- { file: 06.wav, text: "payment fail ho rahi hai customer wapas ja rahe hain" }
+- { file: 07.wav, text: "kya aap replacement bhej sakte ho" }
+- { file: 08.wav, text: "mujhe kisi insaan se baat karni hai" }
+- { file: 09.wav, text: "rent bahut zyada hai mere liye" }
+- { file: 10.wav, text: "koi sasta plan hai kya" }
+- { file: 11.wav, text: "do hazar se upar ki payment pe kitna katega" }
+- { file: 12.wav, text: "GST kitna laga hai" }
+- { file: 13.wav, text: "PhonePe wala sirf sawa sau rupaye mein de raha hai" }
+- { file: 14.wav, text: "aap OTP chahiye kya verification ke liye" }
+- { file: 15.wav, text: "mujhe phone mat karo band karo" }
+- { file: 16.wav, text: "teen ticket khule hain koi jawab nahi de raha" }
+- { file: 17.wav, text: "yeh fee kab se shuru hui" }
+- { file: 18.wav, text: "kal ka settlement abhi tak nahi aaya" }
+- { file: 19.wav, text: "ek lakh se zyada hoga to kya hoga" }
+- { file: 20.wav, text: "achha samajh gaya shukriya" }

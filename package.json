@@ -1,0 +1,43 @@
+{
+  "name": "rishta",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.12"
+  },
+  "packageManager": "pnpm@10.34.9",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "spike:check": "tsx scripts/spike/checkKeys.ts",
+    "spike:openai": "tsx scripts/spike/openaiSmoke.ts",
+    "spike:tts": "tsx scripts/spike/ttsVoices.ts",
+    "spike:stt": "tsx scripts/spike/sttClips.ts",
+    "spike:latency": "tsx scripts/spike/latency.ts"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild"
+    ]
+  },
+  "dependencies": {
+    "@fastify/multipart": "^10.1.6",
+    "@fastify/static": "^10.1.8",
+    "better-sqlite3": "^13.0.3",
+    "fastify": "^5.12.7",
+    "openai": "^7.45.1",
+    "sarvamai": "^1.1.14",
+    "seedrandom": "^3.0.5",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^20.19.43",
+    "@types/seedrandom": "^3.0.8",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}
