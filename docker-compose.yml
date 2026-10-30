@@ -23,7 +23,7 @@ services:
       APP_ENV: production
       DATABASE_URL: postgres://rishta:rishta@postgres:5432/rishta
       KAFKA_BROKERS: kafka:9092
-    command: ["node_modules/.bin/tsx", "scripts/seedDemo.ts"]
+    command: ["sh", "-c", "SEED_ONCE=1 node_modules/.bin/tsx scripts/seedDemo.ts"]
     depends_on:
       postgres: { condition: service_healthy }
   api:
@@ -34,4 +34,5 @@ services:
     depends_on:
       seed: { condition: service_completed_successfully }
       kafka: { condition: service_started }
+    restart: on-failure
     deploy: { replicas: 2 }

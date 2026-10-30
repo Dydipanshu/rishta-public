@@ -93,12 +93,13 @@ Proven by tests here:
 - 4 parallel workers produce briefs identical to a single run.
 - `kill -9` on a server mid-conversation: a second server finished it with exactly one outcome.
 - On real Kafka 4.4 and Postgres, across two servers: outreach sent on one reached the screen on the other, a conversation started on one finished on the other, and the outreach and outcome events reached the Kafka topics.
+- In Docker, in production mode, with two API containers, Postgres and Kafka: all login rules held, a repeated outreach was refused, a container killed mid-conversation was replaced by the other with one outcome, and shutdown was clean. The containers run as a non-root user with no `.env` inside.
 - 15 of 15 conversation evals, and 3 of 3 full browser demo runs.
 
 Not proven or not built:
 
 - **Kafka at scale:** tested on one local broker, not a cluster, and not under load or broker failure. `kafkajs` also logs a timeout warning on Node 24, so check that client before a production rollout. Re-test with `scripts/dev/kafka.sh`.
-- **Docker and Kubernetes files:** written, not run. This machine has no Docker.
+- **Kubernetes:** manifests written and their syntax checked, but never applied to a cluster. The nightly job has not run as a Kubernetes job, and autoscaling is untested.
 - **Paytm adapters:** can't be built until Paytm shares internal APIs. `PaytmCore` lists exactly what is needed.
 - **30-day kept update:** live conversations record `kept` as empty. The job that fills it needs a real activity signal.
 - **Data rules:** transcripts reach OpenAI and Sarvam today. Paytm's compliance team must approve the model hosting; an India-hosted or Paytm-hosted endpoint needs only a settings change.

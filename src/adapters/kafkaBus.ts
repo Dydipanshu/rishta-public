@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Kafka, logLevel, type Consumer } from "kafkajs";
+import { Kafka, Partitioners, logLevel, type Consumer } from "kafkajs";
 import type { EventBus } from "../ports.js";
 
 export async function kafkaBus(brokers: string[], topics: string[], partitions: number): Promise<EventBus> {
@@ -8,7 +8,7 @@ export async function kafkaBus(brokers: string[], topics: string[], partitions: 
   await admin.connect();
   await admin.createTopics({ topics: topics.map((topic) => ({ topic, numPartitions: partitions })), waitForLeaders: true });
   await admin.disconnect();
-  const producer = kafka.producer({ idempotent: true });
+  const producer = kafka.producer({ idempotent: true, createPartitioner: Partitioners.DefaultPartitioner });
   await producer.connect();
   const consumers: Consumer[] = [];
   return {

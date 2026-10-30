@@ -18,6 +18,16 @@ const s = process.env.SKIP_KEYS ? null : loadSettings();
 const seed = s?.DEMO_SEED ?? 7;
 const holdout = s?.HOLDOUT_SHARE ?? 0.15;
 
+if (process.env.SEED_ONCE) {
+  const existing = await openSql();
+  const seeded = await existing.get("SELECT 1 AS ok FROM kv WHERE key = 'risk_model'");
+  await existing.close();
+  if (seeded) {
+    console.log("Already seeded, leaving the data alone");
+    process.exit(0);
+  }
+}
+
 const t0 = performance.now();
 if (!process.env.DATABASE_URL) for (const f of [SQLITE_PATH, `${SQLITE_PATH}-wal`, `${SQLITE_PATH}-shm`]) if (existsSync(f)) rmSync(f);
 const sim = simulate(seed, 5000, holdout);
