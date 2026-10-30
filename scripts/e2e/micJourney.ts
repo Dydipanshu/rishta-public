@@ -120,7 +120,7 @@ await page.screenshot({ path: `${SHOTS}/sharma.png` });
 
 for (const [path, text] of [["/voices", "Pick Rishta"], ["/sales", "Your list for today"], ["/phone/M001", "Ramesh General Store"]] as const) {
   await page.goto(`http://localhost:3000${path}`);
-  check(await page.getByText(text).first().isVisible({ timeout: 5000 }).catch(() => false), `${path} opens`);
+  check(await page.getByText(text).first().waitFor({ timeout: 5000 }).then(() => true, () => false), `${path} opens`);
 }
 
 check(played > 3 && blocked === 0, `spoken replies played (${played} played, ${blocked} blocked)`);
