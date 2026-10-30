@@ -1,12 +1,12 @@
 // Languages Rishta can speak beyond Hindi and English. Malayalam and Odia have no bulbul:v4 voice yet.
-export const LANGUAGES: Record<string, { script: string; voice: string; gender: "Male" | "Female" }> = {
-  "kn-IN": { script: "Kannada", voice: "chaitra_kn_conversation", gender: "Female" },
-  "ta-IN": { script: "Tamil", voice: "aravind_ta_ads", gender: "Male" },
-  "te-IN": { script: "Telugu", voice: "pooja_te_conversation", gender: "Female" },
-  "bn-IN": { script: "Bengali", voice: "roopa_bn_conversational", gender: "Female" },
-  "gu-IN": { script: "Gujarati", voice: "pooja_gu_customer", gender: "Female" },
-  "pa-IN": { script: "Gurmukhi", voice: "anand_pa_customer", gender: "Male" },
-  "mr-IN": { script: "Devanagari", voice: "ishita_mr_conversational", gender: "Female" },
+export const LANGUAGES: Record<string, { name: string; script: string; voice: string }> = {
+  "kn-IN": { name: "Kannada", script: "Kannada", voice: "chaitra_kn_conversation" },
+  "ta-IN": { name: "Tamil", script: "Tamil", voice: "aravind_ta_ads" },
+  "te-IN": { name: "Telugu", script: "Telugu", voice: "pooja_te_conversation" },
+  "bn-IN": { name: "Bengali", script: "Bengali", voice: "roopa_bn_conversational" },
+  "gu-IN": { name: "Gujarati", script: "Gujarati", voice: "pooja_gu_customer" },
+  "pa-IN": { name: "Punjabi", script: "Gurmukhi", voice: "anand_pa_customer" },
+  "mr-IN": { name: "Marathi", script: "Devanagari", voice: "ishita_mr_conversational" },
 };
 
 export const HINDI = "hi-IN";

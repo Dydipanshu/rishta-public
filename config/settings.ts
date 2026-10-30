@@ -8,7 +8,6 @@ const schema = z.object({
   OPENAI_API_KEY: z.string("missing: add it to .env").min(1, "missing: add it to .env"),
   OPENAI_MODEL: z.string("missing: add it to .env").min(1, "missing: add it to .env"),
   SARVAM_STT_MODEL: z.string().default("saaras:v4"),
-  SARVAM_TRANSLATE_MODEL: z.string().default("mayura:v1"),
   SARVAM_TTS_MODEL: z.string().default("bulbul:v4-flash"),
   SARVAM_TTS_VOICE: z.string().default("ishita_enhi_customer"),
   FEE_START_DATE: z.iso.date().default("2026-11-15"),

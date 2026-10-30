@@ -129,7 +129,7 @@ for (const [line, code, speaker, script, name] of [["ನನ್ನ settlement ಯ
   await hold(await clip(line, code, speaker));
   await page.waitForTimeout(22_000);
   const replies = await page.locator("div.rounded-tl-sm").allInnerTexts();
-  check(script.test(replies.at(-1) ?? ""), `${name} speech gets a ${name} reply: ${replies.at(-1)}`);
+  check(replies.slice(1).filter((r) => !script.test(r)).length === 0 && replies.length > 1, `${name} speech gets a ${name} reply: ${replies.at(-1)}`);
   check(replies.join(" ").includes("44.84"), `${name} reply keeps the exact amount`);
   await page.screenshot({ path: `${SHOTS}/${name}.png` });
 }

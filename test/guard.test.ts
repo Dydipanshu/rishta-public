@@ -1,5 +1,6 @@
 import { languageOfText, nextLanguage, trustDetection } from "../src/voice/languages.js";
 import { heardClearly } from "../src/voice/stt.js";
+import { sameNumbers } from "../src/voice/translate.js";
 import { describe, expect, it } from "vitest";
 import { hindiNumber, speakable } from "../src/voice/speakNumbers.js";
 import { checkSentence, collectNumbers, numbersIn, takeChunks } from "../src/agent/guard.js";
@@ -62,6 +63,15 @@ describe("languages", () => {
   it("accepts the conversation's own script only", () => {
     expect(heardClearly("ನನ್ನ settlement", "kn-IN")).toBe(true);
     expect(heardClearly("ನನ್ನ settlement", "ta-IN")).toBe(false);
+  });
+});
+
+describe("translated numbers", () => {
+  it("catches lost, repeated and re-priced amounts", () => {
+    expect(sameNumbers("₹38 fee", "₹38 ಶುಲ್ಕ")).toBe(true);
+    expect(sameNumbers("₹38 और ₹44", "₹38")).toBe(false);
+    expect(sameNumbers("₹14,250 और ₹14,205.16", "₹14,205.16 ₹14,205.16")).toBe(false);
+    expect(sameNumbers("₹2,000", "£2,000")).toBe(false);
   });
 });
 
