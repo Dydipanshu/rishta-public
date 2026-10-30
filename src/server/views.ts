@@ -52,6 +52,15 @@ async function why(sql: Sql) {
   return { reasons, spikes };
 }
 
+// Best approach minus the no-contact group, with a 95% margin. Below the margin, it may be luck.
+function liftOverHoldout(approaches: { label: string; n: number; keepRate: number | null }[], holdout: { n: number; keepRate: number | null }) {
+  const best = approaches.filter((a) => a.keepRate !== null && a.n > 0).sort((a, b) => b.keepRate! - a.keepRate!)[0];
+  if (!best || holdout.keepRate === null || holdout.n === 0) return null;
+  const [p, q] = [best.keepRate!, holdout.keepRate];
+  const margin = 1.96 * Math.sqrt((p * (1 - p)) / best.n + (q * (1 - q)) / holdout.n);
+  return { approach: best.label, points: p - q, margin, proven: p - q > margin };
+}
+
 async function playbook(sql: Sql) {
   const rows = await sql.all("SELECT problem, approach_id, SUM(kept) AS kept, COUNT(*) AS n FROM contact_history WHERE kept IS NOT NULL GROUP BY problem, approach_id");
   const shares = await sql.all("SELECT * FROM playbook_stats ORDER BY week");
@@ -66,39 +75,46 @@ async function playbook(sql: Sql) {
       ...keep(a.id),
       weekly: shares.filter((s) => s.problem === problem && s.approach_id === a.id).map((s) => s.share as number),
     }));
-    return { problem, label: REASON_LABELS[problem], approaches, holdout: keep("holdout") };
+    const holdout = keep("holdout");
+    return { problem, label: REASON_LABELS[problem], approaches, holdout, lift: liftOverHoldout(approaches, holdout) };
   });
 }
 
 async function done(sql: Sql) {
   const outcomes = (await sql.all("SELECT json FROM outcomes")).map((o) => parse(o.json));
   const minutes = outcomes.reduce((s, o) => s + o.durationSec, 0) / 60;
-  const resolved = outcomes.filter((o) => ["stayed", "plan_changed", "ticket_raised"].includes(o.outcome)).length;
+  const byAi = outcomes.filter((o) => o.handledBy !== "human");
+  const resolved = byAi.filter((o) => ["stayed", "plan_changed", "ticket_raised"].includes(o.outcome)).length;
   const tickets = await sql.get("SELECT COUNT(*) AS c FROM tickets WHERE live = 1");
   return {
-    conversations: outcomes.length,
+    conversations: byAi.length,
+    humanClosed: outcomes.length - byAi.length,
     resolvedWithoutHuman: resolved,
     ticketsRaised: Number(tickets?.c ?? 0),
     plansChanged: outcomes.filter((o) => o.outcome === "plan_changed").length,
     escalations: outcomes.filter((o) => o.outcome === "handed_off").length,
     optOuts: outcomes.filter((o) => o.outcome === "opted_out").length,
     visitsSaved: resolved,
-    costPerConversationInr: outcomes.length ? Math.round((minutes * COST_PER_MINUTE_INR * 10) / outcomes.length) / 10 : null,
+    costPerConversationInr: byAi.length ? Math.round((minutes * COST_PER_MINUTE_INR * 10) / byAi.length) / 10 : null,
     costPerMinuteInr: COST_PER_MINUTE_INR,
-    verified: outcomes.filter((o) => o.numbersVerified).length,
+    verified: byAi.filter((o) => o.numbersVerified).length,
   };
 }
 
 async function humanWork(sql: Sql, core: PaytmCore) {
   const handoffs = await sql.all("SELECT h.*, b.meta FROM handoffs h LEFT JOIN briefs b ON b.merchant_id = h.merchant_id ORDER BY h.id DESC LIMIT 20");
   const live = handoffs.map((h) => ({ merchant_id: h.merchant_id, reason: h.reason, summary: h.summary, name: h.meta ? parse(h.meta).name : h.merchant_id, live: true }));
-  const callbacks = await sql.all("SELECT merchant_id, meta FROM briefs WHERE channel = 'human_callback' ORDER BY sort_key DESC LIMIT 20");
+  const closed = new Set((await sql.all("SELECT merchant_id FROM outcomes")).map((o) => o.merchant_id));
+  const callbacks = await sql.all("SELECT merchant_id, brief_id, json, meta FROM briefs WHERE channel = 'human_callback' ORDER BY sort_key DESC LIMIT 20");
   const waiting = await Promise.all(
     callbacks.filter((c) => !live.some((h) => h.merchant_id === c.merchant_id)).map(async (c) => {
       const meta = parse(c.meta);
       const notes = await core.openTickets(c.merchant_id);
       return {
         merchant_id: c.merchant_id,
+        briefId: c.brief_id,
+        problem: parse(c.json).problem,
+        closed: closed.has(c.merchant_id),
         name: meta.name,
         reason: meta.why,
         summary: `${notes.length} open tickets, oldest ${notes[0] ? TODAY - notes[0].openedDay : 0} days old. Latest note: ${notes.at(-1)?.note ?? "none"}. Rishta held back outreach: a person should call, with these tickets in hand.`,
@@ -110,13 +126,14 @@ async function humanWork(sql: Sql, core: PaytmCore) {
   const visits = visitRows.map((v) => {
     const brief = parse(v.json);
     const meta = parse(v.meta);
-    return { merchantId: brief.merchantId, name: meta.name, city: meta.city, why: meta.why, say: approachById(brief.approachId)?.guidance ?? "", tried: "No proactive contact in the last 28 days" };
+    return { merchantId: brief.merchantId, briefId: brief.briefId, problem: brief.problem, closed: closed.has(brief.merchantId), name: meta.name, city: meta.city, why: meta.why, say: approachById(brief.approachId)?.guidance ?? "", tried: "No proactive contact in the last 28 days" };
   });
   return { needsHuman: [...live, ...waiting], visits };
 }
 
 export async function consoleView(sql: Sql, core: PaytmCore) {
   const plan = await sql.get("SELECT json FROM daily_plan");
+  const report = await sql.get("SELECT value FROM kv WHERE key = 'report_card'");
   const total = await sql.get("SELECT COUNT(*) AS c FROM briefs");
   const [q, whyPanel, playbookPanel, donePanel, human, leftAlone] = await Promise.all([
     queue(sql), why(sql), playbook(sql), done(sql), humanWork(sql, core),
@@ -124,6 +141,7 @@ export async function consoleView(sql: Sql, core: PaytmCore) {
   ]);
   return {
     plan: parse(plan!.json),
+    report: report ? parse(report.value) : null,
     queue: q,
     queueTotal: Number(total?.c ?? 0),
     leftAlone: leftAlone.map((l) => ({ ...l, reasons: parse(l.reasons) })),

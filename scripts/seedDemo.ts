@@ -9,7 +9,8 @@ import { benchCore } from "../src/adapters/benchCore.js";
 import { resetLive } from "../src/data/reset.js";
 import { SQLITE_PATH, openSql } from "../src/data/sql.js";
 import { saveSim } from "../src/data/store.js";
-import { BACKFIRE_SEGMENT } from "../src/sim/groundTruth.js";
+import type { ReasonCode } from "../src/engine/reasons.js";
+import { BACKFIRE_SEGMENT, FIX_PROBABILITY } from "../src/sim/groundTruth.js";
 import { simulate } from "../src/sim/simulator.js";
 import { KEEP_WINDOW_DAYS, type Merchant } from "../src/sim/types.js";
 
@@ -68,6 +69,22 @@ const plan = await dailyRun(db, benchCore(db), seed, Number(process.env.SEED_SHA
 const planned = plan.learnedSegments;
 console.log(`Gate 4, leave alone: learned ${JSON.stringify(planned)}, planted ${BACKFIRE_SEGMENT}, match ${planned.length === 1 && planned[0] === BACKFIRE_SEGMENT}`);
 
+let winnersFound = 0;
+const problems = Object.keys(PLAYBOOK);
+for (const problem of problems) {
+  const shares = sim.allocations.filter((a) => a.week === lastWeek && a.problem === problem).sort((a, b) => b.share - a.share);
+  const truth = Object.entries(FIX_PROBABILITY).filter(([, v]) => v[problem as ReasonCode] !== undefined).sort((a, b) => b[1][problem as ReasonCode]! - a[1][problem as ReasonCode]!);
+  if (shares[0]?.approachId === truth[0]?.[0]) winnersFound++;
+}
+await db.run("DELETE FROM kv WHERE key = 'report_card'");
+await db.run("INSERT INTO kv (key, value) VALUES ('report_card', ?)", [JSON.stringify({
+  reasonAccuracy: match / withCause.length,
+  reasonCases: withCause.length,
+  riskLift: metrics.lift,
+  winnersFound,
+  problems: problems.length,
+  backfireFound: planned.length === 1 && planned[0] === BACKFIRE_SEGMENT,
+})]);
 console.log("\nToday's plan:", plan);
 const demo = await db.all<{ merchant_id: string; json: string; meta: string }>("SELECT merchant_id, json, meta FROM briefs WHERE merchant_id LIKE 'M%' ORDER BY merchant_id");
 for (const d of demo) {

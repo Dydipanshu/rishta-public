@@ -49,6 +49,7 @@ export const Outcome = z.object({
   durationSec: z.number(),
   numbersVerified: z.boolean(),
   summary: z.string(),
+  handledBy: z.enum(["ai", "human"]).default("ai"),
 });
 export type Outcome = z.infer<typeof Outcome>;
 

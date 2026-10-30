@@ -1,10 +1,13 @@
 // The nightly decision job. One process: `pnpm daily`.
+// Weekly learning update: `pnpm daily --settle`.
 // Many: `pnpm daily --start`, then `pnpm daily --shard i/n` for each i, then `pnpm daily --finalize`.
 import { existsSync } from "node:fs";
 import { benchCore } from "../adapters/benchCore.js";
 import { openSql } from "../data/sql.js";
 import { shardRange } from "../data/store.js";
 import { dailyRun, finalizeRun, runShards } from "../engine/dailyRun.js";
+import { settleOutcomes } from "../engine/settle.js";
+import { TODAY } from "../sim/types.js";
 
 if (existsSync(".env")) process.loadEnvFile(".env");
 const sql = await openSql();
@@ -12,7 +15,9 @@ const core = benchCore(sql);
 const seed = Number(process.env.DEMO_SEED ?? 7);
 const arg = process.argv[2];
 
-if (arg === "--start") {
+if (arg === "--settle") {
+  console.log("Settled:", await settleOutcomes(sql, core, seed, TODAY));
+} else if (arg === "--start") {
   await sql.run("DELETE FROM run_shards");
   console.log("Run started");
 } else if (arg === "--shard") {

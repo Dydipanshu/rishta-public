@@ -32,6 +32,9 @@ export const openapi = () => ({
     "/v1/briefs/{merchantId}": {
       get: { summary: "One merchant's brief", parameters: [{ name: "merchantId", in: "path", required: true, schema: { type: "string" } }], responses: { 200: { description: "Brief", ...ref("Brief") }, 404: { description: "Nothing planned today" } } },
     },
+    "/v1/settle": {
+      post: { summary: "Count live contacts that reached 30 days and update the playbook", responses: { "200": { description: "What was counted" } } },
+    },
     "/v1/outcomes": {
       post: { summary: "Report how a conversation ended. Safe to retry.", requestBody: { required: true, ...ref("Outcome") }, responses: { 200: { description: "Recorded" }, 404: { description: "Unknown brief" } } },
     },

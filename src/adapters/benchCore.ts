@@ -9,6 +9,11 @@ const now = () => new Date().toISOString();
 export function benchCore(sql: Sql): PaytmCore {
   return {
     merchant: (id) => loadMerchant(sql, id),
+    isActive: async (id, onDay) => {
+      const m = await sql.get<{ churn_day: number | null }>("SELECT churn_day FROM merchants WHERE id = ?", [id]);
+      if (m?.churn_day != null && m.churn_day <= onDay) return false;
+      return !(await sql.get("SELECT 1 AS ok FROM outcomes WHERE merchant_id = ? AND json LIKE '%\"outcome\":\"left\"%'", [id]));
+    },
     merchantPage: (lo, hi, afterId, limit) => loadMerchantPage(sql, lo, hi, afterId, limit),
     openTickets: async (id) =>
       (await sql.all<{ note: string; opened_day: number }>("SELECT note, opened_day FROM tickets WHERE merchant_id = ? AND (closed_day IS NULL OR closed_day > ?) ORDER BY opened_day", [id, TODAY])).map((t) => ({ note: t.note, openedDay: t.opened_day })),

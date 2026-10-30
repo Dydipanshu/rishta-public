@@ -1,9 +1,13 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { rmSync } from "node:fs";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { feeOn } from "../config/fees.js";
 import { eligiblePlans } from "../config/plans.js";
 import { learnedSkips, ruleSkips } from "../src/engine/leaveAlone.js";
 import { addResult, allocation, type Stats } from "../src/engine/playbook.js";
+import { prepare } from "../src/engine/dailyRun.js";
+import { settleOutcomes } from "../src/engine/settle.js";
 import { openSql, type Sql } from "../src/data/sql.js";
+import type { PaytmCore } from "../src/ports.js";
 import { makeRng } from "../src/sim/rng.js";
 
 describe("fees", () => {
@@ -63,5 +67,38 @@ describe("demo plan (needs pnpm seed)", () => {
     const row = (await db.get<{ kind: string; reasons: string }>("SELECT kind, reasons FROM left_alone WHERE merchant_id = 'M006'"))!;
     expect(row.kind).toBe("rule + learned");
     expect(JSON.parse(row.reasons)).toHaveLength(2);
+  });
+});
+
+describe("settling live results", () => {
+  const FILE = "data/test-settle.db";
+  let sql: Sql;
+  const core = (active: boolean) => ({ isActive: async () => active, merchant: async () => ({ name: "Shop" }) }) as unknown as PaytmCore;
+  const liveRow = (day: number) => sql.run("INSERT INTO contact_history (merchant_id, day, week, problem, approach_id, true_cause, segment, city, category, kept) VALUES ('A1', ?, 1, 'fee_confusion', 'fee_own_numbers', 'live', 'T1-x', 'c', 'c', NULL)", [day]);
+
+  beforeEach(async () => {
+    rmSync(FILE, { force: true });
+    sql = await openSql(FILE);
+    await sql.run("INSERT INTO kv (key, value) VALUES ('risk_model', '{}')");
+  });
+  afterEach(async () => {
+    await sql.close();
+    rmSync(FILE, { force: true });
+  });
+
+  it("counts a contact only after 30 days, once", async () => {
+    await liveRow(100);
+    expect(await settleOutcomes(sql, core(true), 7, 129)).toHaveLength(0);
+    const first = await settleOutcomes(sql, core(true), 7, 130);
+    expect(first).toMatchObject([{ kept: true, resultsBefore: 0, resultsAfter: 1 }]);
+    expect(await settleOutcomes(sql, core(true), 7, 130)).toHaveLength(0);
+  });
+
+  it("feeds the result into the next plan", async () => {
+    await liveRow(100);
+    await settleOutcomes(sql, core(false), 7, 130);
+    const { stats } = await prepare(sql);
+    expect(stats.get("fee_confusion|fee_own_numbers|*")).toEqual({ kept: 0, lost: 1 });
+    expect(await sql.all("SELECT * FROM playbook_stats")).not.toHaveLength(0);
   });
 });

@@ -101,5 +101,5 @@ Not proven or not built:
 - **Kafka at scale:** tested on one local broker, not a cluster, and not under load or broker failure. `kafkajs` also logs a timeout warning on Node 24, so check that client before a production rollout. Re-test with `scripts/dev/kafka.sh`.
 - **Kubernetes:** manifests written and their syntax checked, but never applied to a cluster. The nightly job has not run as a Kubernetes job, and autoscaling is untested.
 - **Paytm adapters:** can't be built until Paytm shares internal APIs. `PaytmCore` lists exactly what is needed.
-- **30-day kept update:** live conversations record `kept` as empty. The job that fills it needs a real activity signal.
+- **30-day kept update:** built and tested on the bench (`settleOutcomes`, `pnpm daily --settle`, `POST /v1/settle`). It needs a real Paytm signal behind `PaytmCore.isActive`, and its Kubernetes job has never run.
 - **Data rules:** transcripts reach OpenAI and Sarvam today. Paytm's compliance team must approve the model hosting; an India-hosted or Paytm-hosted endpoint needs only a settings change.

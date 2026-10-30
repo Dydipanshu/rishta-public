@@ -1,3 +1,4 @@
+import { OUTREACH_START_DAY, TODAY } from "../sim/types.js";
 import type { Sql } from "./sql.js";
 
 // Clears everything a demo run wrote. Seeded data stays.
@@ -12,5 +13,6 @@ export async function resetLive(sql: Sql) {
     await tx.run("DELETE FROM tickets WHERE live = 1");
     await tx.run("DELETE FROM reason_events WHERE live = 1");
     await tx.run("DELETE FROM contact_history WHERE true_cause = 'live'");
+    await tx.run("DELETE FROM playbook_stats WHERE week > ?", [Math.floor((TODAY - OUTREACH_START_DAY) / 7) + 1]);
   });
 }

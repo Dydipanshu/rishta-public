@@ -73,6 +73,14 @@
     },
     "summary": {
       "type": "string"
+    },
+    "handledBy": {
+      "default": "ai",
+      "type": "string",
+      "enum": [
+        "ai",
+        "human"
+      ]
     }
   },
   "required": [

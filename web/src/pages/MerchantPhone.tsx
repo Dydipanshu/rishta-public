@@ -12,6 +12,7 @@ interface Merchant {
   latestSettlementNetInr: number;
   fee: { feeInr: number; gstInr: number; feePlusGstInr: number };
   plan: { rent: number };
+  channel: string | null;
   inbox: { text: string; created_at: string }[];
   tickets: { id: string; type: string; status: string; note: string }[];
 }
@@ -19,8 +20,11 @@ interface Merchant {
 const DEMO = [["M001", "Ramesh"], ["M002", "Sharma"], ["M004", "Gupta"], ["M003", "Raju"], ["M005", "Mobile Hub"]] as const;
 const inr = (n: number) => `₹${n.toLocaleString("en-IN")}`;
 
+// /phone/M001 is the real-device view: full screen, one shop. It is a plain web page, the form a Paytm Mini App takes.
+const fixedId = window.location.pathname.match(/^\/phone\/(M\d+)/)?.[1];
+
 export default function MerchantPhone() {
-  const [id, setId] = useState("M001");
+  const [id, setId] = useState(fixedId ?? "M001");
   const [m, setM] = useState<Merchant | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
   const [nudge, setNudge] = useState("");
@@ -43,7 +47,7 @@ export default function MerchantPhone() {
       ptt.stop();
     }
     if (e.type === "changed") load();
-    if (e.type === "nudge" && e.merchantId) {
+    if (e.type === "nudge" && e.merchantId && (!fixedId || e.merchantId === fixedId)) {
       setId(e.merchantId);
       setLines([]);
       setNudge(e.card ?? "");
@@ -51,15 +55,21 @@ export default function MerchantPhone() {
     }
   });
 
+  // Device faults come through the app because the Soundbox itself may be failing.
+  const inApp = m?.channel === "app";
+  useEffect(() => {
+    if (ptt.error) setShowText(true);
+  }, [ptt.error]);
+
   return (
-    <div className="flex min-h-screen flex-col items-center gap-2 p-3">
-      <div className="flex gap-1 text-xs">
+    <div className={`flex min-h-screen flex-col items-center ${fixedId ? "" : "gap-2 p-3"}`}>
+      {!fixedId && <div className="flex gap-1 text-xs">
         {DEMO.map(([mid, label]) => (
           <button key={mid} onClick={() => { setId(mid); setLines([]); setNudge(""); }} className={`rounded px-2 py-1 ${id === mid ? "bg-navy text-white" : "bg-white"}`}>{label}</button>
         ))}
-      </div>
+      </div>}
 
-      <div className="relative flex h-[820px] w-[390px] flex-col overflow-hidden rounded-[32px] border-8 border-slate-900 bg-[#f4f7fb] shadow-xl">
+      <div className={fixedId ? "relative flex h-dvh w-full flex-col overflow-hidden bg-[#f4f7fb]" : "relative flex h-[820px] w-[390px] flex-col overflow-hidden rounded-[32px] border-8 border-slate-900 bg-[#f4f7fb] shadow-xl"}>
         {!armed && (
           <button onClick={() => setArmed(true)} className="absolute inset-0 z-10 bg-navy/90 text-lg font-semibold text-white">Tap to start demo<br /><span className="text-sm font-normal">enables sound</span></button>
         )}
@@ -84,7 +94,7 @@ export default function MerchantPhone() {
           <div className="rounded-xl bg-navy p-4 text-center text-white">
             <div className="mb-1 flex items-center justify-center gap-2 text-xs">
               <span className={`h-2 w-2 rounded-full ${ptt.speaking ? "animate-pulse bg-green-400" : "bg-slate-400"}`} />
-              Paytm Soundbox
+              {inApp ? "Paytm Assistant" : "Paytm Soundbox"}
             </div>
             <div className="mb-3 min-h-8 text-xs opacity-90">{nudge || (ptt.speaking ? "बोल रहा है…" : "")}</div>
             <button
@@ -93,7 +103,7 @@ export default function MerchantPhone() {
               onPointerLeave={ptt.release}
               className={`h-24 w-24 touch-none select-none rounded-full text-sm font-bold shadow-lg ${ptt.recording ? "scale-110 bg-red-500" : "bg-paytm"}`}
             >
-              {ptt.recording ? "बोलिए…" : ptt.thinking ? "…" : "Paytm"}
+              {ptt.recording ? "बोलिए…" : ptt.thinking ? "…" : inApp ? "बोलें" : "Paytm"}
             </button>
             <div className="mt-2 text-[11px] opacity-80">दबाकर रखें और बोलें</div>
           </div>

@@ -12,8 +12,10 @@ import { TOPICS } from "../contracts/events.js";
 import { enqueue } from "../data/outbox.js";
 import { resetLive } from "../data/reset.js";
 import { audit } from "../data/sql.js";
+import { KEEP_WINDOW_DAYS, TODAY } from "../sim/types.js";
 import { Brief, Outcome } from "../engine/brief.js";
 import { outreachBlock } from "../engine/guardrails.js";
+import { settleOutcomes } from "../engine/settle.js";
 import { recordOutcome } from "../engine/outcomes.js";
 import type { ChannelGateway, EventBus } from "../ports.js";
 import type { makeStt } from "../voice/stt.js";
@@ -273,6 +275,11 @@ export async function buildApp(d: AppDeps) {
     await ui({ type: "changed", merchantId: brief.merchantId });
     return { ok: true, duplicate: !added };
   });
+  app.post("/v1/settle", { preHandler: serviceAuth }, async () => {
+    const settled = await settleOutcomes(sql, core, s.DEMO_SEED, TODAY);
+    await ui({ type: "changed" });
+    return { settled };
+  });
   app.post("/v1/sessions", { preHandler: serviceAuth }, async (req, reply) => {
     const parsed = SessionRequest.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: "Bad request" });
@@ -280,6 +287,12 @@ export async function buildApp(d: AppDeps) {
   });
 
   if (!production) {
+    // Bench only: pretends 30 days have passed so the learning step runs live.
+    app.post("/api/demo/fast-forward", async () => {
+      const settled = await settleOutcomes(sql, core, s.DEMO_SEED, TODAY + KEEP_WINDOW_DAYS);
+      await ui({ type: "changed" });
+      return { settled };
+    });
     app.post("/api/reset", async () => {
       await resetLive(sql);
       await ui({ type: "reset" });

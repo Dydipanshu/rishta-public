@@ -5,6 +5,7 @@ import type { Merchant } from "./sim/types.js";
 // a production adapter calls Paytm's services instead, and nothing else changes.
 export interface PaytmCore {
   merchant(id: string): Promise<Merchant>;
+  isActive(merchantId: string, onDay: number): Promise<boolean>;
   merchantPage(lo: number, hi: number, afterId: string, limit: number): Promise<Merchant[]>;
   openTickets(id: string): Promise<{ note: string; openedDay: number }[]>;
   raiseTicket(merchantId: string, type: string, note: string): Promise<{ ticketId: string }>;

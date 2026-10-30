@@ -220,6 +220,14 @@
           },
           "summary": {
             "type": "string"
+          },
+          "handledBy": {
+            "default": "ai",
+            "type": "string",
+            "enum": [
+              "ai",
+              "human"
+            ]
           }
         },
         "required": [
@@ -330,6 +338,14 @@
               },
               "summary": {
                 "type": "string"
+              },
+              "handledBy": {
+                "default": "ai",
+                "type": "string",
+                "enum": [
+                  "ai",
+                  "human"
+                ]
               }
             },
             "required": [
@@ -488,6 +504,16 @@
           },
           "404": {
             "description": "Nothing planned today"
+          }
+        }
+      }
+    },
+    "/v1/settle": {
+      "post": {
+        "summary": "Count live contacts that reached 30 days and update the playbook",
+        "responses": {
+          "200": {
+            "description": "What was counted"
           }
         }
       }

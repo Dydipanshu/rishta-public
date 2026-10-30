@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import "./index.css";
 import Console from "./pages/Console";
 import MerchantPhone from "./pages/MerchantPhone";
+import Sales from "./pages/Sales";
 
 function Demo() {
   return (
@@ -13,5 +14,5 @@ function Demo() {
 }
 
 const path = window.location.pathname;
-const Page = path.startsWith("/merchant") ? MerchantPhone : path.startsWith("/console") ? Console : Demo;
+const Page = path.startsWith("/merchant") || path.startsWith("/phone") ? MerchantPhone : path.startsWith("/console") ? Console : path.startsWith("/sales") ? Sales : Demo;
 createRoot(document.getElementById("root")!).render(<Page />);

@@ -59,7 +59,7 @@ interface RunContext {
   learned: Map<string, SegmentCheck>;
 }
 
-async function prepare(sql: Sql): Promise<RunContext> {
+export async function prepare(sql: Sql): Promise<RunContext> {
   const stored = await sql.get<{ value: string }>("SELECT value FROM kv WHERE key = 'risk_model'");
   if (!stored) throw new Error("No risk model found. Run pnpm seed first.");
   const history = await sql.all<{ problem: string; approach_id: string; segment: string; kept: number; n: number }>(

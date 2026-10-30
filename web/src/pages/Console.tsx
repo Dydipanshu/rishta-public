@@ -1,3 +1,4 @@
+import qrcode from "qrcode-generator";
 import { useCallback, useEffect, useState } from "react";
 import { useEvents } from "../hooks/useEvents";
 
@@ -18,6 +19,18 @@ function Panel({ title, note, children, className = "" }: { title: string; note?
       <h2 className="mb-2 text-sm font-semibold text-navy">{title}{note && <span className="ml-2 text-[10px] font-normal text-amber-700">{note}</span>}</h2>
       {children}
     </section>
+  );
+}
+
+function Qr({ url, label }: { url: string; label: string }) {
+  const q = qrcode(0, "M");
+  q.addData(url);
+  q.make();
+  return (
+    <a href={url} target="_blank" rel="noreferrer" className="block text-center text-[11px] text-slate-600">
+      <div dangerouslySetInnerHTML={{ __html: q.createSvgTag({ cellSize: 3, margin: 2 }) }} />
+      {label}
+    </a>
   );
 }
 
@@ -89,12 +102,14 @@ export default function Console() {
   const [selected, setSelected] = useState("M001");
   const [flash, setFlash] = useState(false);
   const [problem, setProblem] = useState("fee_confusion");
+  const [settled, setSettled] = useState<any[] | null>(null);
 
   const load = useCallback(() => {
     void fetch("/api/console").then((r) => r.json()).then(setV);
   }, []);
   useEffect(load, [load]);
   useEvents((e) => {
+    if (e.type === "reset") setSettled(null);
     if (e.type === "changed") {
       load();
       setFlash(true);
@@ -115,9 +130,19 @@ export default function Console() {
         </div>
         <div className="flex items-center gap-2 text-[11px]">
           <span className="rounded bg-amber-100 px-2 py-1 text-amber-800">Test bench: simulated data with known answers</span>
+          <button onClick={() => void fetch("/api/demo/fast-forward", { method: "POST" }).then((r) => r.json()).then((r) => setSettled(r.settled))} className="rounded bg-navy px-2 py-1 text-white">Jump 30 days</button>
           <button onClick={() => void fetch("/api/reset", { method: "POST" })} className="rounded bg-slate-200 px-2 py-1">Reset demo</button>
         </div>
       </header>
+
+      {settled && (
+        <section className="rounded-xl border border-paytm bg-paytm/10 p-3 text-xs text-navy">
+          <b>30 days later (simulated):</b> {settled.length === 0 && "no live results to count yet. Finish a conversation first."}
+          {settled.map((r) => (
+            <div key={r.merchantId}>{r.name}: {r.kept ? "still active" : "left"}. "{r.approach}" now has {r.resultsAfter} results, up from {r.resultsBefore}. The next plan uses it.</div>
+          ))}
+        </section>
+      )}
 
       <Panel title="Today's plan">
         <div className="grid grid-cols-3 gap-3 md:grid-cols-6">
@@ -186,6 +211,25 @@ export default function Console() {
             </tbody>
           </table>
           <div className="mt-1 text-[11px] text-slate-600">Rishta now sends most {pb.label.toLowerCase()} cases to "{best.label}".</div>
+          {pb.lift && <div className="mt-1 text-[11px] font-semibold text-navy">{pb.lift.proven ? "Proven:" : "Not proven yet:"} {Math.round(pb.lift.points * 100)} points above no contact, margin ±{Math.round(pb.lift.margin * 100)}</div>}
+        </Panel>
+
+        {v.report && (
+          <Panel title="Did Rishta find the planted answers?" note="test bench">
+            <div className="grid grid-cols-2 gap-2">
+              <Stat label={`right reason, ${v.report.reasonCases} cases`} value={pct(v.report.reasonAccuracy)} />
+              <Stat label="best approach found" value={`${v.report.winnersFound} of ${v.report.problems}`} />
+              <Stat label="backfire segment found" value={v.report.backfireFound ? "Yes" : "No"} />
+              <Stat label="risk score, top 10%" value={`${v.report.riskLift.toFixed(1)}×`} />
+            </div>
+          </Panel>
+        )}
+
+        <Panel title="On a real phone">
+          <div className="flex justify-around">
+            <Qr url={`${window.location.origin}/phone/${selected}`} label="Shop app" />
+            <Qr url={`${window.location.origin}/sales`} label="Sales app" />
+          </div>
         </Panel>
 
         <Panel title="Done today">
@@ -197,7 +241,7 @@ export default function Console() {
             <Stat label="visits saved" value={v.done.visitsSaved} />
             <Stat label="₹ per conversation" value={v.done.costPerConversationInr ?? "-"} />
           </div>
-          <div className="mt-2 text-[11px] text-green-700">✓ numbers verified on {v.done.verified} of {v.done.conversations} conversations</div>
+          <div className="mt-2 text-[11px] text-green-700">✓ numbers verified on {v.done.verified} of {v.done.conversations} conversations · {v.done.humanClosed} closed by salespeople</div>
           <div className="text-[10px] text-slate-400">Cost estimated at ₹{v.done.costPerMinuteInr}/minute, list prices.</div>
         </Panel>
       </div>
