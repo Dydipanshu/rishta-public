@@ -92,11 +92,12 @@ Proven by tests here:
 - 50 automated tests pass on SQLite; the 14 storage and conversation tests also pass on Postgres 17.
 - 4 parallel workers produce briefs identical to a single run.
 - `kill -9` on a server mid-conversation: a second server finished it with exactly one outcome.
+- On real Kafka 4.4 and Postgres, across two servers: outreach sent on one reached the screen on the other, a conversation started on one finished on the other, and the outreach and outcome events reached the Kafka topics.
 - 15 of 15 conversation evals, and 3 of 3 full browser demo runs.
 
 Not proven or not built:
 
-- **Kafka adapter:** written, not yet run against a broker. Use `scripts/dev/kafka.sh`.
+- **Kafka at scale:** tested on one local broker, not a cluster, and not under load or broker failure. `kafkajs` also logs a timeout warning on Node 24, so check that client before a production rollout. Re-test with `scripts/dev/kafka.sh`.
 - **Docker and Kubernetes files:** written, not run. This machine has no Docker.
 - **Paytm adapters:** can't be built until Paytm shares internal APIs. `PaytmCore` lists exactly what is needed.
 - **30-day kept update:** live conversations record `kept` as empty. The job that fills it needs a real activity signal.
