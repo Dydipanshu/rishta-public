@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useEvents } from "../hooks/useEvents";
 import { usePushToTalk, type Line } from "../hooks/usePushToTalk";
 
@@ -17,11 +17,20 @@ interface Merchant {
   tickets: { id: string; type: string; status: string; note: string }[];
 }
 
-const DEMO = [["M001", "Ramesh"], ["M002", "Sharma"], ["M004", "Gupta"], ["M003", "Raju"], ["M005", "Mobile Hub"]] as const;
 const inr = (n: number) => `₹${n.toLocaleString("en-IN")}`;
 
 // /phone/M001 is the real-device view: full screen, one shop. It is a plain web page, the form a Paytm Mini App takes.
 const fixedId = window.location.pathname.match(/^\/phone\/(M\d+)/)?.[1];
+
+function Soundbox({ active }: { active: boolean }) {
+  return (
+    <div className={`relative h-16 w-16 shrink-0 rounded-full ${active ? "ring-pulse" : ""}`} aria-hidden>
+      <div className="grid h-full w-full grid-cols-5 place-items-center rounded-full bg-navy p-3">
+        {Array.from({ length: 25 }, (_, i) => <span key={i} className="h-1 w-1 rounded-full bg-white/50" />)}
+      </div>
+    </div>
+  );
+}
 
 export default function MerchantPhone() {
   const [id, setId] = useState(fixedId ?? "M001");
@@ -31,6 +40,7 @@ export default function MerchantPhone() {
   const [typed, setTyped] = useState("");
   const [showText, setShowText] = useState(false);
   const [armed, setArmed] = useState(false);
+  const end = useRef<HTMLDivElement>(null);
 
   const load = useCallback(() => {
     void fetch(`/api/merchant/${id}`).then((r) => r.json()).then(setM);
@@ -55,85 +65,102 @@ export default function MerchantPhone() {
     }
   });
 
-  // Device faults come through the app because the Soundbox itself may be failing.
-  const inApp = m?.channel === "app";
+  // On the laptop, the phone follows the shop picked in the console.
+  useEffect(() => {
+    if (fixedId) return;
+    const channel = new BroadcastChannel("rishta");
+    channel.onmessage = (e) => {
+      setId(e.data as string);
+      setLines([]);
+      setNudge("");
+    };
+    return () => channel.close();
+  }, []);
+
   useEffect(() => {
     if (ptt.error) setShowText(true);
   }, [ptt.error]);
+  useEffect(() => {
+    const box = end.current;
+    if (box) box.scrollTo({ top: box.scrollHeight, behavior: "smooth" });
+  }, [lines, ptt.thinking]);
+
+  // Device faults come through the app because the Soundbox itself may be failing.
+  const inApp = m?.channel === "app";
+  const status = ptt.recording ? "सुन रही हूँ…" : ptt.thinking ? "देख रही हूँ…" : ptt.speaking ? "बोल रही हूँ…" : nudge || lines.length ? "बटन दबाकर रखें और बोलें" : "सब ठीक चल रहा है";
+  const talking = nudge !== "" || lines.length > 0;
 
   return (
-    <div className={`flex min-h-screen flex-col items-center ${fixedId ? "" : "gap-2 p-3"}`}>
-      {!fixedId && <div className="flex gap-1 text-xs">
-        {DEMO.map(([mid, label]) => (
-          <button key={mid} onClick={() => { setId(mid); setLines([]); setNudge(""); }} className={`rounded px-2 py-1 ${id === mid ? "bg-navy text-white" : "bg-white"}`}>{label}</button>
-        ))}
-      </div>}
-
-      <div className={fixedId ? "relative flex h-dvh w-full flex-col overflow-hidden bg-[#f4f7fb]" : "relative flex h-[820px] w-[390px] flex-col overflow-hidden rounded-[32px] border-8 border-slate-900 bg-[#f4f7fb] shadow-xl"}>
+    <div className={`flex h-full items-center justify-center ${fixedId ? "" : "bg-[#e6eef6] p-3"}`}>
+      <div className={fixedId ? "relative flex h-dvh w-full flex-col overflow-hidden bg-paper" : "relative flex h-[min(820px,calc(100dvh-24px))] w-[370px] flex-col overflow-hidden rounded-[36px] border-[7px] border-ink bg-paper shadow-xl"}>
         {!armed && (
-          <button onClick={() => setArmed(true)} className="absolute inset-0 z-10 bg-navy/90 text-lg font-semibold text-white">Tap to start demo<br /><span className="text-sm font-normal">enables sound</span></button>
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-white p-8 text-center">
+            <div className="text-sm text-muted">Paytm for Business</div>
+            <div className="text-2xl font-bold text-navy">{m?.name ?? " "}</div>
+            <button onClick={() => setArmed(true)} className="rounded-full bg-navy px-6 py-3 font-semibold text-white">Open the app</button>
+            <div className="text-xs text-muted">This turns on sound and the mic.</div>
+          </div>
         )}
-        <header className="bg-paytm px-4 pb-3 pt-4 text-white">
-          <div className="text-xs opacity-90">Paytm for Business</div>
-          <div className="font-semibold">{m?.name}</div>
+
+        <header className="bg-paytm px-5 pb-5 pt-5 text-navy">
+          <div className="text-sm font-medium">{m?.name}</div>
+          <div className="mt-2 text-sm">Today's collection</div>
+          <div className="text-4xl font-extrabold leading-tight">{m ? inr(m.today) : " "}</div>
         </header>
 
-        <div className="flex-1 space-y-2 overflow-y-auto p-3">
-          <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-xl bg-white p-3">
-              <div className="text-[11px] text-slate-500">Today's collection</div>
-              <div className="text-lg font-bold text-navy">{m ? inr(m.today) : "-"}</div>
+        <div ref={end} className="flex-1 overflow-y-auto">
+          <div className="flex items-baseline justify-between border-b border-line bg-white px-5 py-3">
+            <div>
+              <div className="text-sm text-muted">Latest settlement</div>
+              {m && m.fee.feeInr > 0 && <div className="text-xs text-muted">Fee {inr(m.fee.feeInr)} + GST {inr(m.fee.gstInr)}</div>}
             </div>
-            <div className="rounded-xl bg-white p-3">
-              <div className="text-[11px] text-slate-500">Latest settlement</div>
-              <div className="text-lg font-bold text-navy">{m ? inr(m.latestSettlementNetInr) : "-"}</div>
-              {m && m.fee.feeInr > 0 && <div className="text-[10px] text-slate-500">Fee {inr(m.fee.feeInr)} + GST {inr(m.fee.gstInr)}</div>}
-            </div>
+            <div className="text-lg font-bold">{m ? inr(m.latestSettlementNetInr) : ""}</div>
           </div>
 
-          <div className="rounded-xl bg-navy p-4 text-center text-white">
-            <div className="mb-1 flex items-center justify-center gap-2 text-xs">
-              <span className={`h-2 w-2 rounded-full ${ptt.speaking ? "animate-pulse bg-green-400" : "bg-slate-400"}`} />
-              {inApp ? "Paytm Assistant" : "Paytm Soundbox"}
+          {talking && (
+            <div className="space-y-2 px-4 py-3" aria-live="polite">
+              {nudge && lines.length === 0 && <div className="rise max-w-[85%] rounded-2xl rounded-tl-sm bg-white px-3 py-2 text-[15px] shadow-sm">{nudge}</div>}
+              {lines.map((l, i) => (
+                <div key={i} className={`rise max-w-[85%] rounded-2xl px-3 py-2 text-[15px] ${l.role === "merchant" ? "ml-auto rounded-tr-sm bg-navy text-white" : "rounded-tl-sm bg-white shadow-sm"}`}>{l.text}</div>
+              ))}
+              {ptt.thinking && <div className="w-fit rounded-2xl bg-white px-3 py-2 text-muted shadow-sm">…</div>}
             </div>
-            <div className="mb-3 min-h-8 text-xs opacity-90">{nudge || (ptt.speaking ? "बोल रहा है…" : "")}</div>
+          )}
+
+          {(m?.tickets.length || m?.inbox.length) ? (
+            <div className="space-y-2 px-4 py-3">
+              {m.tickets.map((t) => <div key={t.id} className="rise rounded-xl border-l-4 border-kept bg-white px-3 py-2 text-sm"><b>Ticket {t.id} raised</b><div className="line-clamp-2 text-muted">{t.note}</div></div>)}
+              {m.inbox.map((x, i) => <div key={i} className="rise rounded-xl bg-white px-3 py-2 text-sm">{x.text}</div>)}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="border-t border-line bg-white px-4 pb-4 pt-3">
+          {ptt.error && <div className="mb-2 text-sm text-callback">{ptt.error}</div>}
+          {showText ? (
+            <form className="mb-2 flex gap-2" onSubmit={(e) => { e.preventDefault(); if (typed.trim()) { ptt.sendText(typed); setTyped(""); } }}>
+              <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="यहाँ लिखें" aria-label="Type your message" className="min-w-0 flex-1 rounded-full border border-line px-4 py-2" />
+              <button className="rounded-full bg-navy px-4 font-semibold text-white">Send</button>
+            </form>
+          ) : null}
+          <div className="flex items-center gap-3">
+            <Soundbox active={ptt.speaking} />
+            <div className="min-w-0 flex-1">
+              <div className="text-xs text-muted">{inApp ? "Paytm Assistant (AI)" : "Paytm Soundbox (AI)"}</div>
+              <div className="truncate font-medium">{status}</div>
+              <button className="text-xs text-muted underline" onClick={() => setShowText((v) => !v)}>{showText ? "Hide keyboard" : "Type instead"}</button>
+            </div>
             <button
               onPointerDown={() => void ptt.start()}
               onPointerUp={ptt.release}
               onPointerLeave={ptt.release}
-              className={`h-24 w-24 touch-none select-none rounded-full text-sm font-bold shadow-lg ${ptt.recording ? "scale-110 bg-red-500" : "bg-paytm"}`}
+              onKeyDown={(e) => { if (e.key === " " && !e.repeat) { e.preventDefault(); void ptt.start(); } }}
+              onKeyUp={(e) => { if (e.key === " ") ptt.release(); }}
+              aria-label="Hold to talk"
+              className={`h-[72px] w-[72px] shrink-0 touch-none select-none rounded-full text-sm font-bold transition-transform ${ptt.recording ? "scale-110 bg-callback text-white" : "bg-paytm text-navy"}`}
             >
-              {ptt.recording ? "बोलिए…" : ptt.thinking ? "…" : inApp ? "बोलें" : "Paytm"}
+              {ptt.recording ? "बोलिए" : "Paytm"}
             </button>
-            <div className="mt-2 text-[11px] opacity-80">दबाकर रखें और बोलें</div>
-          </div>
-
-          {ptt.error && <div className="rounded bg-red-100 p-2 text-xs text-red-700">{ptt.error}</div>}
-
-          <div className="rounded-xl bg-white p-3">
-            <div className="mb-1 flex justify-between text-xs font-semibold text-navy">
-              <span>Paytm Assistant <span className="font-normal text-slate-500">(AI)</span></span>
-              <button className="font-normal text-slate-500 underline" onClick={() => setShowText((v) => !v)}>{showText ? "voice" : "type"}</button>
-            </div>
-            <div className="max-h-44 space-y-1 overflow-y-auto">
-              {lines.length === 0 && <div className="text-xs text-slate-400">Paytm कभी OTP या PIN नहीं माँगता।</div>}
-              {lines.map((l, i) => (
-                <div key={i} className={`rounded-lg px-2 py-1 text-xs ${l.role === "merchant" ? "ml-6 bg-paytm/15" : "mr-6 bg-slate-100"}`}>{l.text}</div>
-              ))}
-            </div>
-            {showText && (
-              <form className="mt-2 flex gap-1" onSubmit={(e) => { e.preventDefault(); if (typed.trim()) { ptt.sendText(typed); setTyped(""); } }}>
-                <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="यहाँ लिखें" className="flex-1 rounded border px-2 py-1 text-xs" />
-                <button className="rounded bg-navy px-2 text-xs text-white">Send</button>
-              </form>
-            )}
-          </div>
-
-          <div className="rounded-xl bg-white p-3">
-            <div className="mb-1 text-xs font-semibold text-navy">Inbox</div>
-            {m?.inbox.length === 0 && m.tickets.length === 0 && <div className="text-xs text-slate-400">कोई नया संदेश नहीं</div>}
-            {m?.tickets.map((t) => <div key={t.id} className="mb-1 rounded bg-green-50 p-2 text-xs">Ticket {t.id} raised: {t.note}</div>)}
-            {m?.inbox.map((x, i) => <div key={i} className="mb-1 rounded bg-slate-50 p-2 text-xs">{x.text}</div>)}
           </div>
         </div>
       </div>

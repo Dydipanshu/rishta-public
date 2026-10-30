@@ -2,11 +2,51 @@
 
 @theme {
   --color-paytm: #00baf2;
+  --color-paytm-deep: #007fb0;
   --color-navy: #002e6e;
+  --color-ink: #0b1f3a;
+  --color-muted: #566579;
+  --color-line: #dbe3ec;
+  --color-paper: #f5f8fb;
+  --color-handled: #00a9de;
+  --color-visit: #2457b8;
+  --color-leftalone: #d98a00;
+  --color-callback: #c2334d;
+  --color-idle: #dfe6ee;
+  --color-kept: #0a7f55;
+  --color-sim: #8a5a00;
+  --font-sans: "Mukta", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 }
 
+html, body, #root { height: 100%; }
+
 body {
-  font-family: system-ui, "Noto Sans Devanagari", sans-serif;
-  background: #eef3f8;
-  color: #0f2540;
+  font-family: var(--font-sans);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-size: 16px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--color-paytm-deep); outline-offset: 2px; }
+
+@keyframes ring {
+  from { transform: scale(0.92); opacity: 0.7; }
+  to { transform: scale(1.3); opacity: 0; }
+}
+@keyframes rise {
+  from { transform: translateY(6px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.ring-pulse::before, .ring-pulse::after {
+  content: ""; position: absolute; inset: 0; border-radius: 9999px; border: 2px solid var(--color-paytm); animation: ring 1.5s ease-out infinite;
+}
+.ring-pulse::after { animation-delay: 0.5s; }
+.rise { animation: rise 220ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
 }
