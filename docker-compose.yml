@@ -6,7 +6,7 @@ services:
     environment: { POSTGRES_USER: rishta, POSTGRES_PASSWORD: rishta, POSTGRES_DB: rishta }
     healthcheck: { test: ["CMD-SHELL", "pg_isready -U rishta"], interval: 3s, retries: 20 }
   kafka:
-    image: apache/kafka:4.0.0
+    image: apache/kafka:4.4.0
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
