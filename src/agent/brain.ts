@@ -14,6 +14,7 @@ import { runTool, toolsFor, type ToolContext } from "./tools.js";
 const TEMPLATE = readFileSync(new URL("./prompts/system.md", import.meta.url), "utf8");
 const READ_TOOLS = new Set(["getMerchantSummary", "explainFee", "checkDeviceHealth", "proposePlan"]);
 const FALLBACK = "जी, मैं check करके बताती हूँ।";
+const NO_SPLITTING = "जी, fee बचाने के तरीकों पर मैं सलाह नहीं दे सकती। कोई और सवाल हो तो बताइए।";
 const FAILOVER = "माफ़ कीजिए, अभी दिक्कत आ रही है। Paytm से एक व्यक्ति आपको call करेगा।";
 const CLOSING_LINES: Record<string, string> = {
   scheduleHumanCallback: "जी, Paytm से एक व्यक्ति आपको call करेगा। धन्यवाद।",
@@ -213,6 +214,12 @@ export class Conversation {
           retried = true;
           this.state.input.push({ role: "user", content: `[System note, not from the merchant: your last reply used something not allowed (${this.guardEvents.at(-1)}). Reply again using only figures from the facts, written as digits.]` });
           continue;
+        }
+        // The guard also stops refusals that name splitting, so refuse with a fixed line. Nothing needs checking.
+        if (String(this.guardEvents.at(-1)).includes("splitting")) {
+          this.say(NO_SPLITTING);
+          yield NO_SPLITTING;
+          return;
         }
         yield* this.fallback();
         return;
