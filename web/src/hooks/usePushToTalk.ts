@@ -5,6 +5,9 @@ export interface Line {
   text: string;
 }
 
+const MIN_HOLD_MS = 500;
+const RELEASE_TAIL_MS = 250;
+
 // Plays URLs one after another; press interrupts.
 function useAudioQueue() {
   const queue = useRef<string[]>([]);
@@ -49,6 +52,7 @@ export function usePushToTalk(merchantId: string, onLine: (l: Line) => void, onD
   const recorder = useRef<MediaRecorder | null>(null);
   const stream = useRef<MediaStream | null>(null);
   const chunks = useRef<Blob[]>([]);
+  const pressedAt = useRef(0);
 
   const readReply = useCallback(async (res: Response) => {
     if (!res.ok || !res.body) throw new Error("No brief for this merchant");
@@ -89,16 +93,21 @@ export function usePushToTalk(merchantId: string, onLine: (l: Line) => void, onD
     stop();
     setError("");
     try {
-      stream.current ??= await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.current ??= await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
       const rec = new MediaRecorder(stream.current, { mimeType: "audio/webm" });
       chunks.current = [];
       rec.ondataavailable = (e) => chunks.current.push(e.data);
       rec.onstop = () => {
+        if (performance.now() - pressedAt.current < MIN_HOLD_MS) {
+          setError("बटन दबाकर रखें, फिर बोलें।");
+          return;
+        }
         const form = new FormData();
         form.append("audio", new Blob(chunks.current, { type: "audio/webm" }), "clip.webm");
         void send(form);
       };
       rec.start();
+      pressedAt.current = performance.now();
       recorder.current = rec;
       setRecording(true);
     } catch {
@@ -107,7 +116,9 @@ export function usePushToTalk(merchantId: string, onLine: (l: Line) => void, onD
   }, [send, stop]);
 
   const release = useCallback(() => {
-    if (recorder.current?.state === "recording") recorder.current.stop();
+    // A short tail, so the last word isn't cut off when the button comes up.
+    const rec = recorder.current;
+    if (rec?.state === "recording") setTimeout(() => rec.stop(), RELEASE_TAIL_MS);
     recorder.current = null;
     setRecording(false);
   }, []);

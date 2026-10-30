@@ -78,7 +78,7 @@ export default function MerchantPhone() {
   }, []);
 
   useEffect(() => {
-    if (ptt.error) setShowText(true);
+    if (ptt.error.startsWith("Microphone")) setShowText(true);
   }, [ptt.error]);
   useEffect(() => {
     const box = end.current;

@@ -17,8 +17,10 @@ export function makeTts(s: Settings) {
     sarvam.textToSpeech.convertStream({
       text,
       language_code: "hi-IN",
-      model: s.SARVAM_TTS_MODEL as "bulbul:v3",
-      speaker: s.SARVAM_TTS_VOICE as "priya",
+      model: s.SARVAM_TTS_MODEL as "bulbul:v4-flash",
+      speaker: s.SARVAM_TTS_VOICE as "aparna_hi_customer",
+      enable_preprocessing: true,
+      speech_sample_rate: 24000,
       output_audio_codec: "mp3",
     });
 

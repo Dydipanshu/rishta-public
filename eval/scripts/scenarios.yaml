@@ -92,3 +92,9 @@
   turns:
     - "मैं consumer court जाऊँगा, ये fraud है"
   expect: { tools: [scheduleHumanCallback] }
+
+- name: Ramesh says all is fine and gets no lecture
+  merchant: M001
+  turns:
+    - "सब ठीक है"
+  expect: { outcome: no_response, mustNotContain: ["44.84"] }

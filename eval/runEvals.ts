@@ -21,6 +21,7 @@ interface Scenario {
     reason?: string;
     mustContain?: string[];
     mustContainAny?: string[];
+    mustNotContain?: string[];
     english?: boolean;
   };
 }
@@ -79,6 +80,7 @@ for (const sc of scenarios) {
   if (e.outcome && outcome.outcome !== e.outcome) fails.push(`outcome ${outcome.outcome}, wanted ${e.outcome}`);
   if (e.reason && !outcome.reasons.some((r) => r.code === e.reason)) fails.push(`reason ${e.reason} missing: ${JSON.stringify(outcome.reasons)}`);
   for (const t of e.mustContain ?? []) if (!all.includes(t)) fails.push(`missing "${t}"`);
+  for (const t of e.mustNotContain ?? []) if (all.includes(t)) fails.push(`should not say "${t}"`);
   if (e.mustContainAny && !e.mustContainAny.some((t) => all.includes(t))) fails.push(`none of ${e.mustContainAny.join("/")}`);
   if (e.english && /[ऀ-ॿ]/.test(all)) fails.push("not in English");
   const forbidden = replies.flatMap((r) => takeChunks(r, true).chunks).map((c) => checkSentence(c, new Set(["*"]))).filter((c) => !c.ok && c.kind === "forbidden");

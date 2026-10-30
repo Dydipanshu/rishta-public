@@ -1,3 +1,4 @@
+import { heardClearly } from "../src/voice/stt.js";
 import { describe, expect, it } from "vitest";
 import { hindiNumber, speakable } from "../src/voice/speakNumbers.js";
 import { checkSentence, collectNumbers, numbersIn, takeChunks } from "../src/agent/guard.js";
@@ -40,4 +41,16 @@ describe("speaking numbers", () => {
   });
   it("reads lakhs", () => expect(hindiNumber(140000)).toBe("एक लाख चालीस हज़ार"));
   it("keeps English as it is", () => expect(speakable("Your fee was ₹38.")).toBe("Your fee was ₹38."));
+});
+
+describe("speech that was misheard", () => {
+  it("accepts Hindi and Hinglish", () => {
+    expect(heardClearly("सब ठीक है")).toBe(true);
+    expect(heardClearly("मेरे settlement में ₹44 कम आए?")).toBe(true);
+  });
+  it("rejects other scripts, symbols and silence", () => {
+    expect(heardClearly("ಠಾ೦")).toBe(false);
+    expect(heardClearly("...")).toBe(false);
+    expect(heardClearly("")).toBe(false);
+  });
 });

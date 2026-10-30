@@ -9,6 +9,7 @@ import "./index.css";
 import Console from "./pages/Console";
 import MerchantPhone from "./pages/MerchantPhone";
 import Sales from "./pages/Sales";
+import Voices from "./pages/Voices";
 
 function Demo() {
   return (
@@ -20,5 +21,5 @@ function Demo() {
 }
 
 const path = window.location.pathname;
-const Page = path.startsWith("/merchant") || path.startsWith("/phone") ? MerchantPhone : path.startsWith("/console") ? Console : path.startsWith("/sales") ? Sales : Demo;
+const Page = path.startsWith("/merchant") || path.startsWith("/phone") ? MerchantPhone : path.startsWith("/console") ? Console : path.startsWith("/sales") ? Sales : path.startsWith("/voices") ? Voices : Demo;
 createRoot(document.getElementById("root")!).render(<Page />);

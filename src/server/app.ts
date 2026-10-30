@@ -15,6 +15,7 @@ import { audit } from "../data/sql.js";
 import { KEEP_WINDOW_DAYS, TODAY } from "../sim/types.js";
 import { Brief, Outcome } from "../engine/brief.js";
 import { outreachBlock } from "../engine/guardrails.js";
+import { heardClearly } from "../voice/stt.js";
 import { settleOutcomes } from "../engine/settle.js";
 import { recordOutcome } from "../engine/outcomes.js";
 import type { ChannelGateway, EventBus } from "../ports.js";
@@ -201,14 +202,14 @@ export async function buildApp(d: AppDeps) {
 
       const text = audio ? await stt(audio.data, audio.type) : typed;
       const sttMs = performance.now() - started;
-      send({ type: "transcript", text });
-      if (!text.trim()) {
+      if (!heardClearly(text)) {
         await conv.save();
         send({ type: "say", ...say("जी, मुझे सुनाई नहीं दिया। कृपया फिर से बोलिए।") });
         send({ type: "end" });
         reply.raw.end();
         return;
       }
+      send({ type: "transcript", text });
 
       let spoke = false;
       let first = 0;
