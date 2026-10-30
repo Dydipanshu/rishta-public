@@ -52,5 +52,6 @@ describe("speech that was misheard", () => {
     expect(heardClearly("ಠಾ೦")).toBe(false);
     expect(heardClearly("...")).toBe(false);
     expect(heardClearly("")).toBe(false);
+    expect(heardClearly("Soundbox.")).toBe(false);
   });
 });

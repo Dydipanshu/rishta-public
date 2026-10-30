@@ -53,6 +53,7 @@ export function usePushToTalk(merchantId: string, onLine: (l: Line) => void, onD
   const stream = useRef<MediaStream | null>(null);
   const chunks = useRef<Blob[]>([]);
   const pressedAt = useRef(0);
+  const heldFor = useRef(0);
 
   const readReply = useCallback(async (res: Response) => {
     if (!res.ok || !res.body) throw new Error("No brief for this merchant");
@@ -98,7 +99,7 @@ export function usePushToTalk(merchantId: string, onLine: (l: Line) => void, onD
       chunks.current = [];
       rec.ondataavailable = (e) => chunks.current.push(e.data);
       rec.onstop = () => {
-        if (performance.now() - pressedAt.current < MIN_HOLD_MS) {
+        if (heldFor.current < MIN_HOLD_MS) {
           setError("बटन दबाकर रखें, फिर बोलें।");
           return;
         }
@@ -118,6 +119,7 @@ export function usePushToTalk(merchantId: string, onLine: (l: Line) => void, onD
   const release = useCallback(() => {
     // A short tail, so the last word isn't cut off when the button comes up.
     const rec = recorder.current;
+    heldFor.current = performance.now() - pressedAt.current;
     if (rec?.state === "recording") setTimeout(() => rec.stop(), RELEASE_TAIL_MS);
     recorder.current = null;
     setRecording(false);

@@ -38,12 +38,12 @@ export interface AppDeps extends AgentDeps {
 const ANNOUNCEMENT = "Paytm पर पाँच सौ रुपये प्राप्त हुए।";
 const FILLERS = ["जी, एक second।", "जी, देखती हूँ।"];
 const NUDGES: Record<string, string> = {
-  fee_confusion: "आपके settlement में कुछ कम आया है। जानने के लिए Paytm button दबाइए।",
-  device_fault: "आपकी मशीन में कुछ दिक्कत दिख रही है। जानने के लिए Paytm button दबाइए।",
-  rent_too_high: "आपके plan के बारे में एक ज़रूरी बात है। जानने के लिए Paytm button दबाइए।",
-  settlement_delay: "आपके settlement की जानकारी है। जानने के लिए Paytm button दबाइए।",
+  fee_confusion: "आपके settlement में कुछ कम आया है। जानने के लिए नीचे का बटन दबाइए।",
+  device_fault: "आपकी मशीन में कुछ दिक्कत दिख रही है। जानने के लिए नीचे का बटन दबाइए।",
+  rent_too_high: "आपके plan के बारे में एक ज़रूरी बात है। जानने के लिए नीचे का बटन दबाइए।",
+  settlement_delay: "आपके settlement की जानकारी है। जानने के लिए नीचे का बटन दबाइए।",
 };
-const DEFAULT_NUDGE = "Paytm की तरफ़ से एक जानकारी है। जानने के लिए Paytm button दबाइए।";
+const DEFAULT_NUDGE = "Paytm की तरफ़ से एक जानकारी है। जानने के लिए नीचे का बटन दबाइए।";
 const nudgeFor = (problem: string) => NUDGES[problem] ?? DEFAULT_NUDGE;
 
 const IDLE_MS = 5 * 60_000;

@@ -1,13 +1,12 @@
 import qrcode from "qrcode-generator";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEvents } from "../hooks/useEvents";
+import MerchantPhone from "./MerchantPhone";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type View = any;
-type Step = "today" | "shop" | "proof" | "why" | "team";
 type Group = "handled" | "visit" | "callback" | "left";
 
-const STEPS: [Step, string][] = [["today", "Today"], ["shop", "One shop"], ["proof", "Proof"], ["why", "Why shops leave"], ["team", "The team"]];
 const GROUPS: Record<Group, { label: string; color: string }> = {
   handled: { label: "Rishta talks to them", color: "#00a9de" },
   visit: { label: "Salesperson visits", color: "#2457b8" },
@@ -135,113 +134,6 @@ function ShopMap({ plan, active, onHover }: { plan: any; active: Group | null; o
   return <canvas ref={canvas} onMouseMove={hover} onMouseLeave={() => onHover(null)} role="img" aria-label={`${plan.checked} shops, one dot each. Coloured dots are shops Rishta made a decision about.`} className="block w-full" />;
 }
 
-function Today({ v, open }: { v: View; open: (id: string) => void }) {
-  const [group, setGroup] = useState<Group>("handled");
-  const [picked, setPicked] = useState(false);
-  const [hover, setHover] = useState<Group | "idle" | null>(null);
-  const p = v.plan;
-  const counts: Record<Group, number> = { handled: p.handledByRishta, visit: p.salespersonVisits, callback: p.humanCallbacks, left: p.leftAlone };
-  const channels: Record<Group, string[]> = { handled: ["soundbox", "app"], visit: ["salesperson_visit"], callback: ["human_callback"], left: [] };
-  const rows = v.queue.filter((q: any) => channels[group].includes(q.brief.channel));
-  const hint = hover === "idle" ? `${num(p.checked - p.needAttention)} shops need nothing today` : hover ? `${counts[hover]} shops: ${GROUPS[hover].label.toLowerCase()}` : "Each dot is one shop";
-  return (
-    <div className="grid gap-x-8 gap-y-6 md:grid-cols-[minmax(0,1.45fr)_minmax(270px,1fr)]">
-      <div>
-        <h1 className="max-w-2xl text-[30px] font-extrabold leading-[1.14] text-navy">{num(p.checked)} shops checked last night. {p.needAttention} needed something, and Rishta decided what.</h1>
-        <div className="mt-6"><ShopMap plan={p} active={hover && hover !== "idle" ? hover : picked ? group : null} onHover={setHover} /></div>
-        <div className="mt-2 text-sm text-muted" aria-live="polite">{hint}</div>
-      </div>
-      <div>
-        <div role="tablist" aria-label="Decisions">
-          {(Object.keys(GROUPS) as Group[]).map((g) => (
-            <button key={g} role="tab" aria-selected={group === g} onClick={() => { setGroup(g); setPicked(true); }} className={`flex w-full items-center gap-3 border-b border-line px-2 py-2.5 text-left ${group === g ? "bg-white" : ""}`}>
-              <span className="h-3 w-3 rounded-full" style={{ background: GROUPS[g].color }} />
-              <span className="flex-1">{GROUPS[g].label}</span>
-              <span className="text-xl font-bold">{counts[g]}</span>
-            </button>
-          ))}
-        </div>
-        <div className="mt-3 max-h-[46vh] overflow-y-auto">
-          {group === "left"
-            ? v.leftAlone.map((l: any) => (
-              <div key={l.merchant_id} className="border-b border-line py-2">
-                <div className="font-semibold">{l.name ?? l.merchant_id}{l.city && <span className="font-normal text-muted">, {l.city}</span>}</div>
-                <div className="text-sm text-muted">{l.reasons.map(plainReason).join(" ")}</div>
-              </div>
-            ))
-            : rows.map((q: any) => (
-              <button key={q.brief.briefId} onClick={() => open(q.brief.merchantId)} className="flex w-full items-baseline justify-between gap-3 border-b border-line py-2 text-left hover:bg-white">
-                <span className="font-semibold">{q.meta.name}</span>
-                <span className="text-right text-sm text-muted">{q.outcome ? `✓ ${OUTCOME[q.outcome.outcome]}` : q.meta.reasonLabel}</span>
-              </button>
-            ))}
-        </div>
-        {group !== "left" && <div className="mt-2 text-sm text-muted">Showing the top {rows.length} of {counts[group]}.</div>}
-      </div>
-    </div>
-  );
-}
-
-function Shop({ item, sent, onSend, error, onJump, settled, go }: { item: any; sent: boolean; onSend: () => void; error: string; onJump: () => void; settled: any[] | null; go: (s: Step) => void }) {
-  const { brief, meta, outcome } = item;
-  const canSend = brief.channel === "soundbox" || brief.channel === "app";
-  const facts = Object.entries(brief.facts).filter(([k]) => k !== "firstName" && k !== "businessName");
-  return (
-    <div className="grid gap-x-8 gap-y-6 md:grid-cols-[minmax(0,1.1fr)_minmax(290px,1fr)]">
-      <div>
-        <div className="text-muted">{meta.city} · {meta.reasonLabel}</div>
-        <h1 className="text-[30px] font-extrabold leading-tight text-navy">{meta.name}</h1>
-        <p className="mt-2 max-w-xl text-xl leading-snug">{meta.why}</p>
-        <dl className="mt-5 max-w-xl">
-          <div className="flex justify-between gap-4 border-t border-line py-2"><dt className="text-muted">Best approach</dt><dd className="text-right font-semibold">{meta.approachLabel}</dd></div>
-          <div className="flex justify-between gap-4 border-t border-line py-2"><dt className="text-muted">Reach them through</dt><dd className="text-right font-semibold">{CHANNEL[brief.channel]}</dd></div>
-          <div className="flex justify-between gap-4 border-y border-line py-2"><dt className="text-muted">Goal</dt><dd className="text-right font-semibold">{brief.goal}</dd></div>
-        </dl>
-
-        <div className="mt-6 max-w-xl">
-          {!outcome && canSend && !sent && <button onClick={onSend} className="w-full rounded-lg bg-navy py-3.5 text-lg font-semibold text-white">Contact {meta.name}</button>}
-          {!outcome && !canSend && <p className="text-lg">This one goes to a person. <button className="font-semibold text-paytm-deep underline" onClick={() => go("team")}>See the team's list</button></p>}
-          {!outcome && sent && <p className="rise text-lg font-semibold text-navy">Sent. Now answer on the phone: hold the Paytm button and speak.</p>}
-          {error && <p className="mt-2 text-callback">{error}</p>}
-          {outcome && (
-            <div className="rise border-l-4 border-kept pl-4">
-              <div className="text-xl font-bold text-kept">✓ {OUTCOME[outcome.outcome]}</div>
-              <p className="mt-1">{outcome.summary}</p>
-              {outcome.reasons.map((r: any, i: number) => <p key={i} className="mt-1 text-muted">"{r.quote}"</p>)}
-              {outcome.numbersVerified && <p className="mt-1 text-sm font-semibold text-kept">Every number it spoke was checked against this shop's data.</p>}
-              {!settled?.length && <button onClick={onJump} className="mt-4 rounded-lg bg-navy px-5 py-3 font-semibold text-white">Jump 30 days: did they stay?</button>}
-              {settled?.map((r) => (
-                <div key={r.merchantId} className="rise mt-4">
-                  <p className="text-lg font-semibold">30 days later (simulated): {r.name} {r.kept ? "is still active" : "has left"}.</p>
-                  <p>"{r.approach}" now has {r.resultsAfter} results, up from {r.resultsBefore}. The next plan uses it.</p>
-                  <button className="mt-2 font-semibold text-paytm-deep underline" onClick={() => go("proof")}>See the proof</button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      <aside>
-        <h2 className="font-semibold text-navy">Numbers the AI may say</h2>
-        <p className="text-sm text-muted">It can't speak any other number. Each one is checked before it's spoken.</p>
-        <table className="mt-2 w-full">
-          <tbody>
-            {facts.map(([k, val]) => {
-              const f = fact(k, val);
-              return <tr key={k} className="border-b border-line"><td className="py-1 pr-3">{f.label}</td><td className="py-1 text-right font-mono text-sm">{f.text}</td></tr>;
-            })}
-          </tbody>
-        </table>
-        <h2 className="mt-5 font-semibold text-navy">It can</h2>
-        <p className="text-sm">{brief.allowedActions.map((a: string) => ACTIONS[a] ?? words(a)).join(" · ")}</p>
-        <h2 className="mt-4 font-semibold text-navy">It must never</h2>
-        <ul className="text-sm">{brief.mustNot.map((x: string) => <li key={x}>{x}</li>)}</ul>
-      </aside>
-    </div>
-  );
-}
-
 function Weeks({ approaches }: { approaches: any[] }) {
   const weeks = approaches[0]?.weekly.length ?? 0;
   return (
@@ -292,7 +184,7 @@ function Proof({ v }: { v: View }) {
         <section className="mt-7 border-t border-line pt-4">
           <h2 className="font-semibold text-navy">We planted the answers in the test data. Did Rishta find them?</h2>
           <div className="mt-2 grid grid-cols-2 gap-4 md:grid-cols-4">
-            {[[pct(r.reasonAccuracy), `right reason, ${num(r.reasonCases)} cases`], [`${r.winnersFound} of ${r.problems}`, "best approach found"], [r.backfireFound ? "Yes" : "No", "found shops where contact backfires"], [`${r.riskLift.toFixed(1)}×`, "risk score, top 10% of shops"]].map(([big, small]) => (
+            {[[pct(r.reasonAccuracy), `right reason, ${num(r.reasonCases)} cases`], [`${r.winnersFound} of ${r.problems}`, "best approach found"], [r.backfireFound ? "Yes" : "No", "found shops where contact backfires"], [`${r.riskLift.toFixed(1)}×`, "likelier to leave, riskiest 10% of shops"]].map(([big, small]) => (
               <div key={small}><div className="text-3xl font-extrabold text-navy">{big}</div><div className="text-sm text-muted">{small}</div></div>
             ))}
           </div>
@@ -321,7 +213,7 @@ function Why({ v, flash }: { v: View; flash: boolean }) {
         <section>
           <h2 className="font-semibold text-navy">What shopkeepers said, last 4 weeks</h2>
           <div className="mt-2 space-y-3">
-            {v.why.reasons.map((r: any) => (
+            {v.why.reasons.slice(0, 5).map((r: any) => (
               <div key={r.code}>
                 <div className="flex justify-between"><span className="font-semibold">{r.label}</span><span>{r.count}</span></div>
                 <div className="mt-0.5 h-2 rounded-full bg-idle"><div className="h-full rounded-full bg-navy" style={{ width: `${(r.count / top) * 100}%` }} /></div>
@@ -366,7 +258,7 @@ function Team({ v, selected }: { v: View; selected: string }) {
     <div>
       <h1 className="max-w-3xl text-[30px] font-extrabold leading-[1.14] text-navy">People get only what needs a person, and it arrives with the homework done.</h1>
       <div className="mt-5 flex flex-wrap gap-x-10 gap-y-3 border-b border-line pb-4">
-        {stats.map(([big, small]) => <div key={small}><div className="text-3xl font-extrabold text-navy">{big}</div><div className="text-sm text-muted">{small}</div></div>)}
+        {stats.filter(([n]) => n).map(([big, small]) => <div key={small}><div className="text-3xl font-extrabold text-navy">{big}</div><div className="text-sm text-muted">{small}</div></div>)}
       </div>
       <div className="mt-5 grid gap-x-8 gap-y-6 md:grid-cols-3">
         <section>
@@ -389,25 +281,148 @@ function Team({ v, selected }: { v: View; selected: string }) {
   );
 }
 
-export default function Console() {
-  const [v, setV] = useState<View | null>(null);
-  const [step, setStep] = useState<Step>("today");
-  const [selected, setSelected] = useState("M001");
-  const [flash, setFlash] = useState(false);
-  const [sent, setSent] = useState(false);
-  const [error, setError] = useState("");
-  const [settled, setSettled] = useState<any[] | null>(null);
+const STEPS = [
+  ["/today", "Overnight"], ["/shop", "One shop"], ["/talk", "Talk"], ["/result", "Result"], ["/proof", "Proof"], ["/why", "Why shops leave"], ["/team", "The team"],
+] as const;
 
+const SCRIPTS: Record<string, string[]> = {
+  M001: ["मेरे settlement में पैसे कम क्यों आए", "अच्छा समझ गया, मैं Soundbox रख लेता हूँ"],
+  M002: ["मेरा Soundbox का battery बार बार खत्म हो जाता है", "हाँ replacement भेज दीजिए"],
+  M004: ["Soundbox का rent बहुत ज़्यादा लगता है", "हाँ ठीक है, यह plan कर दीजिए"],
+};
+
+function Welcome({ start }: { start: () => void }) {
+  return (
+    <div className="mx-auto flex h-full max-w-2xl flex-col justify-center overflow-y-auto px-6 py-6">
+      <div className="text-xl font-extrabold text-paytm-deep">Rishta</div>
+      <h1 className="mt-2 text-[34px] font-extrabold leading-[1.08] md:text-[44px] text-navy">Paytm's AI manager for keeping shops.</h1>
+      <p className="mt-4 text-xl">Every night it decides which shops to help, how, and which to leave alone. Then it talks to them, fixes the problem, and proves what worked.</p>
+      <ol className="mt-6 grid gap-3 sm:grid-cols-3">
+        {[["1", "See the decisions", "What it chose for 5,000 shops overnight"], ["2", "Be the shopkeeper", "Talk to it in Hindi, with your own voice"], ["3", "See the proof", "Did the shop stay, and what did Rishta learn?"]].map(([n, title, text]) => (
+          <li key={n} className="border-t-2 border-paytm pt-2"><div className="font-semibold text-navy">{n}. {title}</div><div className="text-sm text-muted">{text}</div></li>
+        ))}
+      </ol>
+      <p className="mt-5 text-muted">Takes 3 minutes. Allow the microphone when your browser asks.</p>
+      <button onClick={start} className="mt-7 w-fit rounded-xl bg-navy px-8 py-4 text-xl font-semibold text-white">Start</button>
+    </div>
+  );
+}
+
+function Today({ v }: { v: View }) {
+  const [hover, setHover] = useState<Group | "idle" | null>(null);
+  const p = v.plan;
+  const counts: Record<Group, number> = { handled: p.handledByRishta, visit: p.salespersonVisits, callback: p.humanCallbacks, left: p.leftAlone };
+  return (
+    <div className="grid items-start gap-8 md:grid-cols-[minmax(0,1.6fr)_minmax(260px,1fr)]">
+      <div>
+        <h1 className="text-[32px] font-extrabold leading-[1.14] text-navy">{num(p.checked)} shops checked last night. {p.needAttention} needed a decision.</h1>
+        <div className="mt-5"><ShopMap plan={p} active={hover && hover !== "idle" ? hover : null} onHover={setHover} /></div>
+        <p className="mt-2 text-sm text-muted">Each dot is one shop. Grey shops need nothing today.</p>
+      </div>
+      <dl className="md:mt-14">
+        {(Object.keys(GROUPS) as Group[]).map((g) => (
+          <div key={g} onMouseEnter={() => setHover(g)} onMouseLeave={() => setHover(null)} className="flex items-center gap-3 border-b border-line py-3">
+            <span className="h-3.5 w-3.5 rounded-full" style={{ background: GROUPS[g].color }} />
+            <dt className="flex-1 text-lg">{GROUPS[g].label}</dt>
+            <dd className="text-2xl font-bold">{counts[g]}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+function Shop({ item }: { item: any }) {
+  const { brief, meta } = item;
+  const facts = Object.entries(brief.facts).filter(([k]) => k !== "firstName" && k !== "businessName").slice(0, 8);
+  return (
+    <div className="grid items-start gap-8 md:grid-cols-[minmax(0,1.2fr)_minmax(300px,1fr)]">
+      <div>
+        <div className="text-muted">{meta.city} · {meta.reasonLabel}</div>
+        <h1 className="text-[32px] font-extrabold leading-tight text-navy">{meta.name}</h1>
+        <p className="mt-2 text-xl leading-snug">{meta.why}</p>
+        <h2 className="mt-6 text-lg font-semibold text-navy">What Rishta decided</h2>
+        <dl>
+          <div className="flex justify-between gap-4 border-b border-line py-2"><dt className="text-muted">How to help</dt><dd className="text-right font-semibold">{meta.approachLabel}</dd></div>
+          <div className="flex justify-between gap-4 border-b border-line py-2"><dt className="text-muted">Reach them through</dt><dd className="text-right font-semibold">{CHANNEL[brief.channel]}</dd></div>
+          <div className="flex justify-between gap-4 border-b border-line py-2"><dt className="text-muted">Goal</dt><dd className="text-right font-semibold">{brief.goal}</dd></div>
+        </dl>
+      </div>
+      <aside>
+        <h2 className="text-lg font-semibold text-navy">The AI may only say these numbers</h2>
+        <table className="mt-1 w-full"><tbody>
+          {facts.map(([k, val]) => { const f = fact(k, val); return <tr key={k} className="border-b border-line"><td className="py-1 pr-3">{f.label}</td><td className="py-1 text-right font-mono text-sm">{f.text}</td></tr>; })}
+        </tbody></table>
+      </aside>
+    </div>
+  );
+}
+
+function Talk({ shop, name, done }: { shop: string; name: string; done: boolean }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center">
+      <MerchantPhone shopId={shop} tips={done ? [] : SCRIPTS[shop] ?? []} onTip />
+      <span className="sr-only">You are {name}</span>
+    </div>
+  );
+}
+
+function Result({ item, settled, jump }: { item: any; settled: any[] | null; jump: () => void }) {
+  const { meta, outcome } = item;
+  if (!outcome) return <p className="text-lg">No result yet. Go back and finish the conversation.</p>;
+  return (
+    <div className="max-w-2xl">
+      <div className="text-2xl font-bold text-kept">✓ {OUTCOME[outcome.outcome]}</div>
+      <h1 className="text-[32px] font-extrabold leading-tight text-navy">{meta.name}</h1>
+      <p className="mt-2 text-xl leading-snug">{outcome.summary}</p>
+      {outcome.reasons.map((r: any, i: number) => <p key={i} className="mt-2 text-lg text-muted">"{r.quote}"</p>)}
+      {outcome.numbersVerified && <p className="mt-2 font-semibold text-kept">Every number it spoke was checked against this shop's data.</p>}
+      {!settled?.length
+        ? <button onClick={jump} className="mt-6 rounded-xl bg-navy px-6 py-3.5 text-lg font-semibold text-white">Jump 30 days: did they stay?</button>
+        : settled.map((r) => (
+          <div key={r.merchantId} className="rise mt-6 border-l-4 border-paytm pl-4">
+            <p className="text-xl font-semibold">30 days later (simulated): {r.kept ? "still active" : "they left"}.</p>
+            <p className="mt-1">"{r.approach}" now has {r.resultsAfter} results, up from {r.resultsBefore}. Tonight's plan uses it.</p>
+          </div>
+        ))}
+    </div>
+  );
+}
+
+const DO: Record<string, string> = {
+  "/today": "Look at the map. Rishta made all these decisions on its own. Then continue.",
+  "/shop": "This is why Rishta picked this shop. Press the button to contact them.",
+  "/talk": "You are the shopkeeper now. Listen, then hold the mic button and speak, or tap the suggested line.",
+  "/result": "The conversation is done. Press Jump 30 days to see if the shop stayed.",
+  "/proof": "This is the evidence that the approach works. Then continue.",
+  "/why": "Conversations show the sales team why shops really leave, including what you just said.",
+  "/team": "That's the whole loop. Try another shop, or scan a code to open it on your phone.",
+};
+
+export default function Flow() {
+  const [url, setUrl] = useState(window.location.pathname + window.location.search);
+  const [v, setV] = useState<View | null>(null);
+  const [flash, setFlash] = useState(false);
+  const [settled, setSettled] = useState<any[] | null>(null);
+  const [error, setError] = useState("");
+  const [path, query = ""] = url.split("?");
+  const shop = new URLSearchParams(query).get("shop") ?? "M001";
+
+  const go = useCallback((to: string) => {
+    history.pushState(null, "", to);
+    setUrl(to);
+    setError("");
+  }, []);
+  useEffect(() => {
+    const back = () => setUrl(window.location.pathname + window.location.search);
+    addEventListener("popstate", back);
+    return () => removeEventListener("popstate", back);
+  }, []);
   const load = useCallback(() => {
     void fetch("/api/console").then((r) => r.json()).then(setV);
   }, []);
   useEffect(load, [load]);
   useEvents((e) => {
-    if (e.type === "reset") {
-      setSettled(null);
-      setSent(false);
-      setStep("today");
-    }
     if (e.type === "changed") {
       load();
       setFlash(true);
@@ -415,47 +430,80 @@ export default function Console() {
     }
   });
 
-  const open = (id: string) => {
-    setSelected(id);
-    setSent(false);
-    setError("");
+  const startOver = async () => {
+    await fetch("/api/reset", { method: "POST" });
     setSettled(null);
-    setStep("shop");
-    const channel = new BroadcastChannel("rishta");
-    channel.postMessage(id);
-    channel.close();
+    go("/");
   };
-  const send = async () => {
+  const begin = async () => {
+    await fetch("/api/reset", { method: "POST" });
+    setSettled(null);
+    go("/today");
+  };
+  const contact = async () => {
     setError("");
-    const res = await fetch(`/api/outreach/${selected}`, { method: "POST" });
+    go(`/talk?shop=${shop}`);
+    // The phone needs a moment to start listening for the nudge.
+    await new Promise((r) => setTimeout(r, 900));
+    const res = await fetch(`/api/outreach/${shop}`, { method: "POST" });
     const body = await res.json();
-    if (res.ok && !body.duplicate) setSent(true);
-    else setError(body.duplicate ? "Already contacted today. Press Start over to run it again." : body.error ?? "Couldn't send this. Try again.");
+    if (!res.ok) setError(body.error ?? "Couldn't reach the shop. Try again.");
   };
   const jump = async () => setSettled((await (await fetch("/api/demo/fast-forward", { method: "POST" })).json()).settled);
+  const otherShop = (id: string) => {
+    setSettled(null);
+    go(`/shop?shop=${id}`);
+  };
 
+  if (path === "/" || !STEPS.some(([p]) => p === path)) return <Welcome start={() => void begin()} />;
   if (!v) return <div className="p-6">Loading…</div>;
-  const item = v.queue.find((q: any) => q.brief.merchantId === selected) ?? v.queue[0];
+  const item = v.queue.find((q: any) => q.brief.merchantId === shop) ?? v.queue[0];
+  const index = STEPS.findIndex(([p]) => p === path);
+  const withShop = (p: string) => `${p}?shop=${shop}`;
+  const next: { label: string; run: () => void; off?: boolean } | null =
+    path === "/today" ? { label: "See the first shop", run: () => go(withShop("/shop")) }
+    : path === "/shop" ? { label: `Contact ${item.meta.name}`, run: () => void contact() }
+    : path === "/talk" ? { label: item.outcome ? "See what happened" : "Finish the conversation first", run: () => go(withShop("/result")), off: !item.outcome }
+    : path === "/result" ? { label: settled?.length ? "See the proof" : "Jump 30 days first", run: () => go(withShop("/proof")), off: !settled?.length }
+    : path === "/proof" ? { label: "Why shops leave", run: () => go(withShop("/why")) }
+    : path === "/why" ? { label: "The team", run: () => go(withShop("/team")) }
+    : null;
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex flex-wrap items-center gap-x-6 gap-y-1 border-b border-line bg-white px-6">
-        <div className="text-xl font-extrabold text-navy">Rishta</div>
-        <nav className="flex flex-1 gap-1" aria-label="Sections">
-          {STEPS.map(([id, label]) => (
-            <button key={id} onClick={() => setStep(id)} aria-current={step === id ? "page" : undefined} className={`border-b-[3px] px-3 py-3 font-medium ${step === id ? "border-paytm text-navy" : "border-transparent text-muted"}`}>{label}</button>
-          ))}
-        </nav>
-        <span className="text-sm text-sim">Simulated test data</span>
-        <button onClick={() => void fetch("/api/reset", { method: "POST" })} className="text-sm text-muted underline">Start over</button>
+      <header className="flex items-center gap-5 border-b border-line bg-white px-4 py-2.5 md:px-6">
+        <button onClick={() => go("/")} className="text-lg font-extrabold text-navy">Rishta</button>
+        <div className="flex-1 text-sm font-semibold text-navy md:hidden">Step {index + 1} of {STEPS.length}</div>
+        <ol className="hidden flex-1 gap-x-4 text-sm md:flex" aria-label="Progress">
+          {STEPS.map(([p, label], i) => <li key={p} aria-current={i === index ? "step" : undefined} className={i === index ? "font-bold text-navy" : i < index ? "text-kept" : "text-muted"}>{i < index ? "✓ " : `${i + 1}. `}{label}</li>)}
+        </ol>
+        <span className="hidden text-sm text-sim md:inline">Simulated data</span>
+        <button onClick={() => void startOver()} className="text-sm text-muted underline">Start over</button>
       </header>
-      <main key={step} className="rise min-h-0 flex-1 overflow-y-auto px-6 py-6">
-        {step === "today" && <Today v={v} open={open} />}
-        {step === "shop" && <Shop item={item} sent={sent} onSend={() => void send()} error={error} onJump={() => void jump()} settled={settled} go={setStep} />}
-        {step === "proof" && <Proof v={v} />}
-        {step === "why" && <Why v={v} flash={flash} />}
-        {step === "team" && <Team v={v} selected={selected} />}
+      <div className="bg-navy px-4 py-2.5 font-medium text-white md:px-6 md:text-lg" role="status">{path === "/talk" && item?.outcome ? "Conversation finished. Press See what happened." : path === "/result" && settled?.length ? "That result now feeds tonight's plan. Press See the proof." : DO[path]}</div>
+      <main key={path} className="rise min-h-0 flex-1 overflow-y-auto px-4 py-5 md:px-6">
+        <div className="mx-auto h-full max-w-6xl">
+        {path === "/today" && <Today v={v} />}
+        {path === "/shop" && <Shop item={item} />}
+        {path === "/talk" && <Talk shop={shop} name={item.meta.name} done={!!item.outcome} />}
+        {path === "/result" && <Result item={item} settled={settled} jump={() => void jump()} />}
+        {path === "/proof" && <Proof v={v} />}
+        {path === "/why" && <Why v={v} flash={flash} />}
+        {path === "/team" && <Team v={v} selected={shop} />}
+        </div>
       </main>
+      <footer className="flex flex-wrap items-center gap-2 border-t border-line bg-white px-4 py-3 md:px-6">
+        <button onClick={() => history.back()} className="rounded-xl px-4 py-3 text-muted">Back</button>
+        {error && <span className="text-callback">{error}</span>}
+        <div className="flex-1" />
+        {next
+          ? <button onClick={next.run} disabled={next.off} className={`rounded-xl px-7 py-3 text-lg font-semibold ${next.off ? "bg-idle text-muted" : "bg-navy text-white"}`}>{next.label}</button>
+          : <>
+            <button onClick={() => otherShop("M002")} className="rounded-xl border border-navy px-5 py-3 font-semibold text-navy">Try Sharma Medicos</button>
+            <button onClick={() => otherShop("M004")} className="rounded-xl border border-navy px-5 py-3 font-semibold text-navy">Try Gupta Snacks</button>
+            <button onClick={() => void startOver()} className="rounded-xl bg-navy px-6 py-3 font-semibold text-white">Start over</button>
+          </>}
+      </footer>
     </div>
   );
 }

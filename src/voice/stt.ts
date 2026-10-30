@@ -5,8 +5,9 @@ import { withTimeout } from "./timeout.js";
 // Words the model should expect from a shopkeeper talking about Paytm.
 const KEYTERMS = ["Paytm", "Soundbox", "settlement", "fee", "GST", "ticket", "plan", "rent", "payment", "battery", "UPI", "QR"];
 
+// A lone keyterm is the model hearing its own hint in noise.
 // Merchants speak Hindi and English here. Anything in another script is noise misheard, never speech.
-export const heardClearly = (text: string) => /[\p{Script=Devanagari}\p{Script=Latin}]/u.test(text) && !/[^\p{Script=Devanagari}\p{Script=Latin}\p{N}\p{P}\p{S}\p{Z}\p{M}]/u.test(text);
+export const heardClearly = (text: string) => !KEYTERMS.some((k) => k.toLowerCase() === text.replace(/[\p{P}\s]/gu, "").toLowerCase()) && /[\p{Script=Devanagari}\p{Script=Latin}]/u.test(text) && !/[^\p{Script=Devanagari}\p{Script=Latin}\p{N}\p{P}\p{S}\p{Z}\p{M}]/u.test(text);
 
 export function makeStt(s: Settings) {
   const sarvam = new SarvamAIClient({ apiSubscriptionKey: s.SARVAM_API_KEY });
