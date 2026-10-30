@@ -1,0 +1,93 @@
+# Secrets come from the rishta-secrets Secret: API keys, DATABASE_URL, KAFKA_BROKERS.
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: rishta-api }
+spec:
+  replicas: 3
+  selector: { matchLabels: { app: rishta-api } }
+  strategy: { rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } }
+  template:
+    metadata:
+      labels: { app: rishta-api }
+      annotations: { prometheus.io/scrape: "true", prometheus.io/port: "3000" }
+    spec:
+      terminationGracePeriodSeconds: 45
+      containers:
+        - name: api
+          image: rishta:latest
+          ports: [{ containerPort: 3000 }]
+          envFrom: [{ secretRef: { name: rishta-secrets } }]
+          readinessProbe: { httpGet: { path: /readyz, port: 3000 }, periodSeconds: 5 }
+          livenessProbe: { httpGet: { path: /healthz, port: 3000 }, periodSeconds: 10 }
+          resources:
+            requests: { cpu: 500m, memory: 512Mi }
+            limits: { memory: 1Gi }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: rishta-api }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: rishta-api }
+  minReplicas: 3
+  maxReplicas: 100
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 60 } }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: { name: rishta-api }
+spec:
+  minAvailable: 2
+  selector: { matchLabels: { app: rishta-api } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: rishta-api }
+spec:
+  selector: { app: rishta-api }
+  ports: [{ port: 80, targetPort: 3000 }]
+---
+# The nightly run. Each pod takes one shard range; a failed pod retries only its own range.
+apiVersion: batch/v1
+kind: CronJob
+metadata: { name: rishta-daily }
+spec:
+  schedule: "30 20 * * *" # 2am IST
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      completionMode: Indexed
+      completions: 32
+      parallelism: 32
+      backoffLimitPerIndex: 3
+      template:
+        spec:
+          restartPolicy: Never
+          initContainers:
+            - name: start
+              image: rishta:latest
+              envFrom: [{ secretRef: { name: rishta-secrets } }]
+              command: ["sh", "-c", "[ \"$JOB_COMPLETION_INDEX\" != 0 ] || node_modules/.bin/tsx src/worker/daily.ts --start"]
+          containers:
+            - name: worker
+              image: rishta:latest
+              envFrom: [{ secretRef: { name: rishta-secrets } }]
+              command: ["sh", "-c", "node_modules/.bin/tsx src/worker/daily.ts --shard $JOB_COMPLETION_INDEX/32"]
+---
+# Runs after the shards. It refuses to publish a plan if any shard is missing.
+apiVersion: batch/v1
+kind: CronJob
+metadata: { name: rishta-daily-finalize }
+spec:
+  schedule: "30 21 * * *" # 3am IST
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: finalize
+              image: rishta:latest
+              envFrom: [{ secretRef: { name: rishta-secrets } }]
+              command: ["node_modules/.bin/tsx", "src/worker/daily.ts", "--finalize"]

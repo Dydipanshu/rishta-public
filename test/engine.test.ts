@@ -3,7 +3,7 @@ import { feeOn } from "../config/fees.js";
 import { eligiblePlans } from "../config/plans.js";
 import { learnedSkips, ruleSkips } from "../src/engine/leaveAlone.js";
 import { addResult, allocation, type Stats } from "../src/engine/playbook.js";
-import { openDb, type DB } from "../src/server/db.js";
+import { openSql, type Sql } from "../src/data/sql.js";
 import { makeRng } from "../src/sim/rng.js";
 
 describe("fees", () => {
@@ -38,9 +38,9 @@ describe("leave alone", () => {
 });
 
 describe("demo plan (needs pnpm seed)", () => {
-  let db: DB;
-  const brief = (id: string) => JSON.parse((db.prepare("SELECT json FROM briefs WHERE merchant_id = ?").get(id) as { json: string }).json);
-  beforeAll(() => { db = openDb(); });
+  let db: Sql;
+  const brief = async (id: string) => JSON.parse((await db.get<{ json: string }>("SELECT json FROM briefs WHERE merchant_id = ?", [id]))!.json);
+  beforeAll(async () => { db = await openSql(); });
 
   it.each([
     ["M001", "fee_own_numbers", "soundbox"],
@@ -48,18 +48,19 @@ describe("demo plan (needs pnpm seed)", () => {
     ["M003", "human_callback", "human_callback"],
     ["M004", "rent_right_size_plan", "soundbox"],
     ["M005", "fee_threshold_headsup", "app"],
-  ])("%s gets %s via %s", (id, approach, channel) => {
-    expect(brief(id).approachId).toBe(approach);
-    expect(brief(id).channel).toBe(channel);
+  ])("%s gets %s via %s", async (id, approach, channel) => {
+    const b = await brief(id);
+    expect(b.approachId).toBe(approach);
+    expect(b.channel).toBe(channel);
   });
 
-  it("has Ramesh's exact figures", () => {
-    const f = brief("M001").facts;
+  it("has Ramesh's exact figures", async () => {
+    const f = (await brief("M001")).facts;
     expect([f.paymentsAbove2000Count, f.paymentsAbove2000TotalInr, f.feeInr, f.gstInr, f.feePlusGstInr]).toEqual([4, 9500, 38, 6.84, 44.84]);
   });
 
-  it("leaves Fresh Fruits Corner alone for both reasons", () => {
-    const row = db.prepare("SELECT kind, reasons FROM left_alone WHERE merchant_id = 'M006'").get() as { kind: string; reasons: string };
+  it("leaves Fresh Fruits Corner alone for both reasons", async () => {
+    const row = (await db.get<{ kind: string; reasons: string }>("SELECT kind, reasons FROM left_alone WHERE merchant_id = 'M006'"))!;
     expect(row.kind).toBe("rule + learned");
     expect(JSON.parse(row.reasons)).toHaveLength(2);
   });

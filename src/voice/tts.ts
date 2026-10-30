@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { SarvamAIClient } from "sarvamai";
 import type { Settings } from "../../config/settings.js";
 import { speakable } from "./speakNumbers.js";
@@ -8,9 +8,10 @@ const CACHE_DIR = "data/tts-cache";
 
 export function makeTts(s: Settings) {
   const sarvam = new SarvamAIClient({ apiSubscriptionKey: s.SARVAM_API_KEY });
-  const pending = new Map<string, string>();
   mkdirSync(CACHE_DIR, { recursive: true });
   const fileFor = (hash: string) => `${CACHE_DIR}/${hash}.mp3`;
+  const hashOf = (spoken: string) => createHash("sha1").update(`${s.SARVAM_TTS_MODEL}|${s.SARVAM_TTS_VOICE}|${spoken}`).digest("hex").slice(0, 20);
+  const sign = (text: string) => createHmac("sha256", s.SESSION_SECRET).update(text).digest();
 
   const open = (text: string) =>
     sarvam.textToSpeech.convertStream({
@@ -21,37 +22,47 @@ export function makeTts(s: Settings) {
       output_audio_codec: "mp3",
     });
 
+  const store = (hash: string, chunks: Buffer[]) => {
+    // Written then renamed, so a reader never sees half a file.
+    const temp = `${fileFor(hash)}.${process.pid}`;
+    writeFileSync(temp, Buffer.concat(chunks));
+    renameSync(temp, fileFor(hash));
+  };
+
   return {
-    // Registers a line and returns the URL that will play it.
+    // The signed URL carries the line itself, so any server can play it.
     prepare(text: string) {
       const spoken = speakable(text);
-      const hash = createHash("sha1").update(`${s.SARVAM_TTS_MODEL}|${s.SARVAM_TTS_VOICE}|${spoken}`).digest("hex").slice(0, 20);
-      if (!existsSync(fileFor(hash))) pending.set(hash, spoken);
-      return `/api/tts/${hash}`;
+      const t = Buffer.from(spoken).toString("base64url");
+      return `/api/tts/${hashOf(spoken)}?t=${t}&s=${sign(spoken).toString("base64url")}`;
+    },
+
+    verify(t: string, sig: string) {
+      const spoken = Buffer.from(t, "base64url").toString();
+      const given = Buffer.from(sig, "base64url");
+      const wanted = sign(spoken);
+      return given.length === wanted.length && timingSafeEqual(given, wanted) ? spoken : null;
     },
 
     async prewarm(lines: string[]) {
       for (const line of lines) {
-        const url = this.prepare(line);
-        const hash = url.split("/").pop()!;
-        const spoken = pending.get(hash);
-        if (!spoken) continue;
+        const spoken = speakable(line);
+        const hash = hashOf(spoken);
+        if (existsSync(fileFor(hash))) continue;
         const res = await open(spoken);
         const chunks: Buffer[] = [];
         for await (const chunk of res.stream()!) chunks.push(Buffer.from(chunk));
-        writeFileSync(fileFor(hash), Buffer.concat(chunks));
-        pending.delete(hash);
+        store(hash, chunks);
       }
     },
 
     // Streams to the browser while filling the cache.
-    async *stream(hash: string): AsyncGenerator<Buffer> {
+    async *stream(spoken: string): AsyncGenerator<Buffer> {
+      const hash = hashOf(spoken);
       if (existsSync(fileFor(hash))) {
         yield readFileSync(fileFor(hash));
         return;
       }
-      const spoken = pending.get(hash);
-      if (!spoken) throw new Error("Unknown audio");
       const res = await open(spoken);
       const chunks: Buffer[] = [];
       for await (const chunk of res.stream()!) {
@@ -59,8 +70,7 @@ export function makeTts(s: Settings) {
         chunks.push(b);
         yield b;
       }
-      writeFileSync(fileFor(hash), Buffer.concat(chunks));
-      pending.delete(hash);
+      store(hash, chunks);
     },
   };
 }

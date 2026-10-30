@@ -4,10 +4,11 @@ import { parse } from "yaml";
 import { loadSettings } from "../config/settings.js";
 import { Conversation } from "../src/agent/brain.js";
 import { checkSentence, collectNumbers, takeChunks } from "../src/agent/guard.js";
+import { benchCore } from "../src/adapters/benchCore.js";
 import { openAIAdapter } from "../src/agent/llmAdapter.js";
 import { Brief } from "../src/engine/brief.js";
-import { openDb } from "../src/server/db.js";
-import { resetLive } from "../src/server/reset.js";
+import { openSql } from "../src/data/sql.js";
+import { resetLive } from "../src/data/reset.js";
 
 interface Scenario {
   name: string;
@@ -29,21 +30,22 @@ const model = process.argv[2] ?? s.OPENAI_MODEL;
 const only = process.argv[3];
 const llm = openAIAdapter(s.OPENAI_API_KEY, model, s.OPENAI_REASONING_EFFORT);
 
-const source = openDb();
+const source = await openSql("data/rishta.db");
 for (const f of ["data/eval.db", "data/eval.db-wal", "data/eval.db-shm"]) if (existsSync(f)) rmSync(f);
-source.exec("VACUUM INTO 'data/eval.db'");
-source.close();
-const db = openDb("data/eval.db");
+await source.run("VACUUM INTO 'data/eval.db'");
+await source.close();
+const db = await openSql("data/eval.db");
+const deps = { sql: db, core: benchCore(db), llm };
 
 const scenarios = (parse(readFileSync("eval/scripts/scenarios.yaml", "utf8")) as Scenario[]).filter((x) => !only || x.name.includes(only));
 let passed = 0;
 const started = performance.now();
 
 for (const sc of scenarios) {
-  resetLive(db);
-  const row = db.prepare("SELECT json, meta FROM briefs WHERE merchant_id = ?").get(sc.merchant) as { json: string; meta: string };
+  await resetLive(db);
+  const row = (await db.get<{ json: string; meta: string }>("SELECT json, meta FROM briefs WHERE merchant_id = ?", [sc.merchant]))!;
   const brief = Brief.parse(JSON.parse(row.json));
-  const conv = new Conversation(db, brief, llm, JSON.parse(row.meta).why);
+  const conv = await Conversation.start(deps, brief, JSON.parse(row.meta).why);
   conv.opening();
   const fails: string[] = [];
   const replies: string[] = [];
@@ -65,11 +67,11 @@ for (const sc of scenarios) {
     if (conv.ended) break;
   }
 
-  const outcome = await conv.finish();
+  const outcome = (await conv.finish())!;
   const all = replies.join(" ");
   const allowed = new Set<string>();
   collectNumbers(brief.facts, allowed);
-  collectNumbers(db.prepare("SELECT detail FROM audit_log WHERE kind = 'tool'").all(), allowed);
+  collectNumbers(await db.all("SELECT detail FROM audit_log WHERE kind = 'tool'"), allowed);
 
   const e = sc.expect;
   for (const t of e.tools ?? []) if (!conv.actions.includes(t as never)) fails.push(`missing tool ${t}`);

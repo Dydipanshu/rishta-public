@@ -13,11 +13,11 @@ export type Stats = Map<string, Tally>;
 
 const key = (problem: string, approach: string, segment = "*") => `${problem}|${approach}|${segment}`;
 
-export function addResult(stats: Stats, problem: string, approach: string, segment: string, kept: boolean) {
+export function addResult(stats: Stats, problem: string, approach: string, segment: string, kept: boolean, n = 1) {
   for (const k of [key(problem, approach), key(problem, approach, segment)]) {
     const t = stats.get(k) ?? { kept: 0, lost: 0 };
-    if (kept) t.kept++;
-    else t.lost++;
+    if (kept) t.kept += n;
+    else t.lost += n;
     stats.set(k, t);
   }
 }

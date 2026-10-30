@@ -1,0 +1,29 @@
+# Full production shape on one machine. Fill the keys in .env first.
+services:
+  postgres:
+    image: postgres:17
+    environment: { POSTGRES_USER: rishta, POSTGRES_PASSWORD: rishta, POSTGRES_DB: rishta }
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U rishta"], interval: 3s, retries: 20 }
+  kafka:
+    image: apache/kafka:4.0.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+  api:
+    build: .
+    env_file: .env
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgres://rishta:rishta@postgres:5432/rishta
+      KAFKA_BROKERS: kafka:9092
+    ports: ["3000:3000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka: { condition: service_started }
+    deploy: { replicas: 2 }

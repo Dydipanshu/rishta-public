@@ -7,6 +7,7 @@ export interface HistoryRow {
   segment: string;
   arm: "contacted" | "holdout";
   kept: number;
+  n?: number;
 }
 
 export interface SegmentCheck {
@@ -24,12 +25,13 @@ export function learnedSkips(rows: HistoryRow[]): SegmentCheck[] {
   const bySegment = new Map<string, { cK: number; cN: number; hK: number; hN: number }>();
   for (const r of rows) {
     const s = bySegment.get(r.segment) ?? { cK: 0, cN: 0, hK: 0, hN: 0 };
+    const n = r.n ?? 1;
     if (r.arm === "contacted") {
-      s.cK += r.kept;
-      s.cN++;
+      s.cK += r.kept * n;
+      s.cN += n;
     } else {
-      s.hK += r.kept;
-      s.hN++;
+      s.hK += r.kept * n;
+      s.hN += n;
     }
     bySegment.set(r.segment, s);
   }

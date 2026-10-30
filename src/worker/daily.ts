@@ -1,0 +1,27 @@
+// The nightly decision job. One process: `pnpm daily`.
+// Many: `pnpm daily --start`, then `pnpm daily --shard i/n` for each i, then `pnpm daily --finalize`.
+import { existsSync } from "node:fs";
+import { benchCore } from "../adapters/benchCore.js";
+import { openSql } from "../data/sql.js";
+import { shardRange } from "../data/store.js";
+import { dailyRun, finalizeRun, runShards } from "../engine/dailyRun.js";
+
+if (existsSync(".env")) process.loadEnvFile(".env");
+const sql = await openSql();
+const core = benchCore(sql);
+const seed = Number(process.env.DEMO_SEED ?? 7);
+const arg = process.argv[2];
+
+if (arg === "--start") {
+  await sql.run("DELETE FROM run_shards");
+  console.log("Run started");
+} else if (arg === "--shard") {
+  const [i, n] = process.argv[3]!.split("/").map(Number) as [number, number];
+  const { lo, hi } = shardRange(i, n);
+  console.log(`Shard ${i}/${n}:`, await runShards(sql, core, seed, lo, hi));
+} else if (arg === "--finalize") {
+  console.log("Today's plan:", await finalizeRun(sql));
+} else {
+  console.log("Today's plan:", await dailyRun(sql, core, seed));
+}
+await sql.close();

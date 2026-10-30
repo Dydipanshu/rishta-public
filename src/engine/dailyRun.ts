@@ -1,17 +1,20 @@
-import { readFileSync } from "node:fs";
 import { FIXED_ROUTES, PLAYBOOK, approachById } from "../../config/playbook.js";
 import { MAX_MONTHLY_DISCOUNT_INR } from "../../config/plans.js";
 import { buildFeatures } from "../features/buildFeatures.js";
 import { detectProblem } from "../models/problems.js";
 import { scoreRisk, type RiskModel } from "../models/risk.js";
-import { audit, type DB } from "../server/db.js";
-import { loadMerchants } from "../server/store.js";
+import { randomUUID } from "node:crypto";
+import { TOPICS } from "../contracts/events.js";
+import { enqueue } from "../data/outbox.js";
+import { audit, type Sql } from "../data/sql.js";
+import { SHARDS, shardOf, shardRange } from "../data/store.js";
+import type { PaytmCore } from "../ports.js";
 import { makeRng } from "../sim/rng.js";
-import { TODAY, segmentOf } from "../sim/types.js";
+import { TODAY, segmentOf, type Merchant } from "../sim/types.js";
 import { ACTION_NAMES, Brief, ESCALATE_IF, MUST_NOT, MUST_SAY, type ActionName } from "./brief.js";
 import { VISITS_PER_DAY, channelFor } from "./channels.js";
 import { factsFor } from "./facts.js";
-import { learnedSkips, ruleSkips, type HistoryRow } from "./leaveAlone.js";
+import { learnedSkips, ruleSkips, type HistoryRow, type SegmentCheck } from "./leaveAlone.js";
 import { addResult, chooseApproach, type Stats } from "./playbook.js";
 import { REASON_LABELS, type ReasonCode } from "./reasons.js";
 
@@ -47,91 +50,101 @@ export interface TodayPlan {
   learnedSegments: string[];
 }
 
-export function dailyRun(db: DB, seed: number): TodayPlan {
-  const merchants = loadMerchants(db);
-  const risk = JSON.parse(readFileSync("data/risk.json", "utf8")) as RiskModel;
+export const PAGE_SIZE = 1000;
 
-  const history = db.prepare("SELECT * FROM contact_history WHERE kept IS NOT NULL").all() as {
-    problem: string; approach_id: string; segment: string; kept: number;
-  }[];
+interface RunContext {
+  risk: RiskModel;
+  stats: Stats;
+  checks: SegmentCheck[];
+  learned: Map<string, SegmentCheck>;
+}
+
+async function prepare(sql: Sql): Promise<RunContext> {
+  const stored = await sql.get<{ value: string }>("SELECT value FROM kv WHERE key = 'risk_model'");
+  if (!stored) throw new Error("No risk model found. Run pnpm seed first.");
+  const history = await sql.all<{ problem: string; approach_id: string; segment: string; kept: number; n: number }>(
+    "SELECT problem, approach_id, segment, kept, COUNT(*) AS n FROM contact_history WHERE kept IS NOT NULL GROUP BY problem, approach_id, segment, kept",
+  );
   const stats: Stats = new Map();
   const rows: HistoryRow[] = [];
   for (const h of history) {
-    rows.push({ segment: h.segment, arm: h.approach_id === "holdout" ? "holdout" : "contacted", kept: h.kept });
+    rows.push({ segment: h.segment, arm: h.approach_id === "holdout" ? "holdout" : "contacted", kept: h.kept, n: h.n });
     if (PLAYBOOK[h.problem as ReasonCode] && h.approach_id !== "holdout" && h.approach_id !== "route") {
-      addResult(stats, h.problem, h.approach_id, h.segment, h.kept === 1);
+      addResult(stats, h.problem, h.approach_id, h.segment, h.kept === 1, h.n);
     }
   }
   const checks = learnedSkips(rows);
-  const learned = new Map(checks.filter((c) => c.skip).map((c) => [c.segment, c]));
+  return { risk: JSON.parse(stored.value) as RiskModel, stats, checks, learned: new Map(checks.filter((c) => c.skip).map((c) => [c.segment, c])) };
+}
 
-  type Candidate = { brief: Brief; meta: Record<string, unknown>; sortKey: number; value: number };
-  const candidates: Candidate[] = [];
-  const skipped: { m: (typeof merchants)[number]; kind: string; reasons: string[] }[] = [];
-  let active = 0;
-  let holdoutWatched = 0;
+interface ShardCounts {
+  checked: number;
+  active: number;
+  leftAlone: number;
+  holdoutWatched: number;
+}
 
-  for (const m of merchants) {
-    const f = buildFeatures(m, TODAY);
-    if (f.daysSinceLastPayment >= 14) continue;
-    active++;
-    const detected = detectProblem(f);
-    if (!detected) continue;
-    const { score, reasons } = scoreRisk(risk, f);
-    // An open complaint always gets attention, whatever the score says.
-    if (score < ATTENTION_RISK && !detected.thresholdHeadsUp && f.openTickets === 0) continue;
+function decide(m: Merchant, ctx: RunContext, seed: number, counts: ShardCounts) {
+  const { risk, stats, learned } = ctx;
+  const f = buildFeatures(m, TODAY);
+  if (f.daysSinceLastPayment >= 14) return null;
+  counts.active++;
+  const detected = detectProblem(f);
+  if (!detected) return null;
+  const { score, reasons } = scoreRisk(risk, f);
+  // An open complaint always gets attention, whatever the score says.
+  if (score < ATTENTION_RISK && !detected.thresholdHeadsUp && f.openTickets === 0) return null;
 
-    const segment = segmentOf(m);
-    const skipReasons = ruleSkips({ ...m, monthlyCollections: f.monthlyCollections }, TODAY);
-    const rule = skipReasons.length > 0;
-    const seg = learned.get(segment);
-    if (seg) {
-      skipReasons.push(`Learned (simulated): in ${segment} shops, ${Math.round(seg.contactedKeep * 100)}% of contacted shops stayed vs ${Math.round(seg.holdoutKeep * 100)}% of holdout`);
-    }
-    if (m.holdout) {
-      holdoutWatched++;
-      continue;
-    }
-    if (skipReasons.length > 0) {
-      skipped.push({ m, kind: rule && seg ? "rule + learned" : rule ? "rule" : "learned", reasons: skipReasons });
-      continue;
-    }
+  const segment = segmentOf(m);
+  const skipReasons = ruleSkips({ ...m, monthlyCollections: f.monthlyCollections }, TODAY);
+  const rule = skipReasons.length > 0;
+  const seg = learned.get(segment);
+  if (seg) {
+    skipReasons.push(`Learned (simulated): in ${segment} shops, ${Math.round(seg.contactedKeep * 100)}% of contacted shops stayed vs ${Math.round(seg.holdoutKeep * 100)}% of holdout`);
+  }
+  if (m.holdout) {
+    counts.holdoutWatched++;
+    return null;
+  }
+  if (skipReasons.length > 0) {
+    return { skip: { m, kind: rule && seg ? "rule + learned" : rule ? "rule" : "learned", reasons: skipReasons } };
+  }
 
-    const headsUp = detected.thresholdHeadsUp === true;
-    let channel = channelFor(detected.problem, f, score, headsUp);
-    let approachId: string;
-    let share: number | null = null;
-    if (headsUp) approachId = FIXED_ROUTES.fee_threshold_headsup!.id;
-    else if (PLAYBOOK[detected.problem]) {
-      const choice = chooseApproach(stats, detected.problem, segment, makeRng(`${seed}-${m.id}`));
-      approachId = choice.approachId;
-      share = choice.share;
-    } else if (channel === "human_callback") approachId = FIXED_ROUTES.human_callback!.id;
-    else if (channel === "salesperson_visit") approachId = FIXED_ROUTES.salesperson_visit!.id;
-    else approachId = FIXED_ROUTES.app_checkin!.id;
+  const headsUp = detected.thresholdHeadsUp === true;
+  const channel = channelFor(detected.problem, f, score, headsUp);
+  let approachId: string;
+  let share: number | null = null;
+  if (headsUp) approachId = FIXED_ROUTES.fee_threshold_headsup!.id;
+  else if (PLAYBOOK[detected.problem]) {
+    const choice = chooseApproach(stats, detected.problem, segment, makeRng(`${seed}-${m.id}`));
+    approachId = choice.approachId;
+    share = choice.share;
+  } else if (channel === "human_callback") approachId = FIXED_ROUTES.human_callback!.id;
+  else if (channel === "salesperson_visit") approachId = FIXED_ROUTES.salesperson_visit!.id;
+  else approachId = FIXED_ROUTES.app_checkin!.id;
 
-    let why = detected.why;
-    if (m.tickets.some((t) => t.note.includes("return") && t.closedDay === null)) why += "; asked about returning the device";
+  let why = detected.why;
+  if (m.tickets.some((t) => t.note.includes("return") && t.closedDay === null)) why += "; asked about returning the device";
 
-    const briefId = `B-${m.id}-${TODAY}`;
-    const brief = Brief.parse({
-      briefId,
-      merchantId: m.id,
-      displayName: m.name,
-      language: m.language,
-      channel,
-      problem: detected.problem,
-      approachId,
-      goal: headsUp ? "Merchant knows the threshold early and is not surprised" : (GOALS[detected.problem] ?? "Understand what changed for the shop"),
-      facts: factsFor(m, TODAY, detected.problem, headsUp),
-      allowedActions: actionsFor(detected.problem).filter((a) => ACTION_NAMES.includes(a)),
-      limits: { maxDiscountInr: MAX_MONTHLY_DISCOUNT_INR },
-      mustSay: MUST_SAY,
-      mustNot: MUST_NOT,
-      escalateIf: ESCALATE_IF,
-      successCriteria: "Merchant is still active after 30 days",
-    });
-    candidates.push({
+  const brief = Brief.parse({
+    briefId: `B-${m.id}-${TODAY}`,
+    merchantId: m.id,
+    displayName: m.name,
+    language: m.language,
+    channel,
+    problem: detected.problem,
+    approachId,
+    goal: headsUp ? "Merchant knows the threshold early and is not surprised" : (GOALS[detected.problem] ?? "Understand what changed for the shop"),
+    facts: factsFor(m, TODAY, detected.problem, headsUp),
+    allowedActions: actionsFor(detected.problem).filter((a) => ACTION_NAMES.includes(a)),
+    limits: { maxDiscountInr: MAX_MONTHLY_DISCOUNT_INR },
+    mustSay: MUST_SAY,
+    mustNot: MUST_NOT,
+    escalateIf: ESCALATE_IF,
+    successCriteria: "Merchant is still active after 30 days",
+  });
+  return {
+    candidate: {
       brief,
       value: f.monthlyCollections * score,
       sortKey: (m.isDemo ? 1e12 : 0) + (m.isDemo ? -Number(m.id.slice(1)) : f.monthlyCollections * score),
@@ -148,34 +161,92 @@ export function dailyRun(db: DB, seed: number): TodayPlan {
         segment,
         isDemo: m.isDemo,
       },
+    },
+  };
+}
+
+// Decides for one range of shards. Re-running a range replaces its own results.
+export async function runShards(sql: Sql, core: PaytmCore, seed: number, lo: number, hi: number, ctx?: RunContext) {
+  const context = ctx ?? (await prepare(sql));
+  const counts: ShardCounts = { checked: 0, active: 0, leftAlone: 0, holdoutWatched: 0 };
+  await sql.tx(async (tx) => {
+    await tx.run("DELETE FROM briefs WHERE shard >= ? AND shard <= ?", [lo, hi]);
+    await tx.run("DELETE FROM left_alone WHERE shard >= ? AND shard <= ?", [lo, hi]);
+  });
+  let after = "";
+  for (;;) {
+    const page = await core.merchantPage(lo, hi, after, PAGE_SIZE);
+    if (page.length === 0) break;
+    after = page.at(-1)!.id;
+    const briefs: unknown[][] = [];
+    const left: unknown[][] = [];
+    for (const m of page) {
+      counts.checked++;
+      const d = decide(m, context, seed, counts);
+      if (d?.skip) {
+        counts.leftAlone++;
+        left.push([d.skip.m.id, d.skip.m.name, d.skip.m.city, d.skip.kind, JSON.stringify(d.skip.reasons), d.skip.m.isDemo ? 1 : 0, shardOf(m.id)]);
+      }
+      if (d?.candidate) {
+        const c = d.candidate;
+        briefs.push([c.brief.briefId, c.brief.merchantId, c.sortKey, JSON.stringify(c.brief), JSON.stringify(c.meta), c.brief.channel, c.value, shardOf(m.id)]);
+      }
+    }
+    await sql.tx(async (tx) => {
+      await tx.bulk("briefs", ["brief_id", "merchant_id", "sort_key", "json", "meta", "channel", "value", "shard"], briefs);
+      await tx.bulk("left_alone", ["merchant_id", "name", "city", "kind", "reasons", "is_demo", "shard"], left);
     });
   }
-
-  // Salesperson time is limited: keep the most valuable visits, the rest go to the app.
-  const visits = candidates.filter((c) => c.brief.channel === "salesperson_visit").sort((a, b) => b.value - a.value);
-  for (const c of visits.slice(VISITS_PER_DAY)) c.brief.channel = "app";
-
-  const plan: TodayPlan = {
-    checked: merchants.length,
-    active,
-    needAttention: candidates.length + skipped.length,
-    handledByRishta: candidates.filter((c) => c.brief.channel === "soundbox" || c.brief.channel === "app").length,
-    salespersonVisits: candidates.filter((c) => c.brief.channel === "salesperson_visit").length,
-    humanCallbacks: candidates.filter((c) => c.brief.channel === "human_callback").length,
-    leftAlone: skipped.length,
-    holdoutWatched,
-    learnedSegments: [...learned.keys()],
-  };
-
-  const write = db.transaction(() => {
-    for (const t of ["briefs", "left_alone", "daily_plan"]) db.prepare(`DELETE FROM ${t}`).run();
-    const ins = db.prepare("INSERT INTO briefs (brief_id, merchant_id, sort_key, json, meta) VALUES (?, ?, ?, ?, ?)");
-    for (const c of candidates) ins.run(c.brief.briefId, c.brief.merchantId, c.sortKey, JSON.stringify(c.brief), JSON.stringify(c.meta));
-    const skip = db.prepare("INSERT INTO left_alone (merchant_id, name, city, kind, reasons, is_demo) VALUES (?, ?, ?, ?, ?, ?)");
-    for (const s of skipped) skip.run(s.m.id, s.m.name, s.m.city, s.kind, JSON.stringify(s.reasons), s.m.isDemo ? 1 : 0);
-    db.prepare("INSERT INTO daily_plan (id, json) VALUES (1, ?)").run(JSON.stringify({ ...plan, checks }));
-    audit(db, null, "daily_run", plan);
+  await sql.tx(async (tx) => {
+    await tx.run("DELETE FROM run_shards WHERE lo = ? AND hi = ?", [lo, hi]);
+    await tx.run("INSERT INTO run_shards (lo, hi, json) VALUES (?, ?, ?)", [lo, hi, JSON.stringify(counts)]);
   });
-  write();
-  return plan;
+  return counts;
+}
+
+// Runs once all shards finish: applies the shared limits and publishes the plan.
+export async function finalizeRun(sql: Sql, ctx?: RunContext): Promise<TodayPlan> {
+  const context = ctx ?? (await prepare(sql));
+  const done = await sql.all<{ lo: number; hi: number; json: string }>("SELECT lo, hi, json FROM run_shards");
+  const covered = done.reduce((a, r) => a + r.hi - r.lo + 1, 0);
+  // A crashed worker must stop the plan, not shrink it silently.
+  if (covered !== SHARDS) throw new Error(`Run incomplete: ${covered} of ${SHARDS} shards finished`);
+  const parts = done.map((r) => JSON.parse(r.json) as ShardCounts);
+  const sum = (k: keyof ShardCounts) => parts.reduce((a, p) => a + p[k], 0);
+  return sql.tx(async (tx) => {
+    // Salesperson time is limited: keep the most valuable visits, the rest go to the app.
+    const extra = await tx.all<{ brief_id: string; json: string }>("SELECT brief_id, json FROM briefs WHERE channel = 'salesperson_visit' ORDER BY value DESC LIMIT 1000000 OFFSET ?", [VISITS_PER_DAY]);
+    for (const b of extra) {
+      await tx.run("UPDATE briefs SET channel = 'app', json = ? WHERE brief_id = ?", [JSON.stringify({ ...JSON.parse(b.json), channel: "app" }), b.brief_id]);
+    }
+    const byChannel = new Map((await tx.all<{ channel: string; n: number }>("SELECT channel, COUNT(*) AS n FROM briefs GROUP BY channel")).map((r) => [r.channel, Number(r.n)]));
+    const n = (c: string) => byChannel.get(c) ?? 0;
+    const candidates = [...byChannel.values()].reduce((a, b) => a + b, 0);
+    const plan: TodayPlan = {
+      checked: sum("checked"),
+      active: sum("active"),
+      needAttention: candidates + sum("leftAlone"),
+      handledByRishta: n("soundbox") + n("app"),
+      salespersonVisits: n("salesperson_visit"),
+      humanCallbacks: n("human_callback"),
+      leftAlone: sum("leftAlone"),
+      holdoutWatched: sum("holdoutWatched"),
+      learnedSegments: [...context.learned.keys()],
+    };
+    await tx.run("DELETE FROM daily_plan");
+    await tx.run("INSERT INTO daily_plan (id, json) VALUES (1, ?)", [JSON.stringify({ ...plan, checks: context.checks })]);
+    await audit(tx, null, "daily_run", plan);
+    await enqueue(tx, TOPICS.plans, "plan", { id: randomUUID(), type: "plan.ready", version: 1, at: new Date().toISOString(), plan });
+    return plan;
+  });
+}
+
+export async function dailyRun(sql: Sql, core: PaytmCore, seed: number, shardCount = 1): Promise<TodayPlan> {
+  const ctx = await prepare(sql);
+  await sql.run("DELETE FROM run_shards");
+  for (let i = 0; i < shardCount; i++) {
+    const { lo, hi } = shardRange(i, shardCount);
+    await runShards(sql, core, seed, lo, hi, ctx);
+  }
+  return finalizeRun(sql, ctx);
 }

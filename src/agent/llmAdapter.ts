@@ -26,8 +26,8 @@ export interface LLMAdapter {
   extract<T extends z.ZodType>(req: { instructions: string; text: string; schema: T; name: string }): Promise<z.infer<T>>;
 }
 
-export function openAIAdapter(apiKey: string, model: string, effort: "none" | "low" | "medium"): LLMAdapter {
-  const client = new OpenAI({ apiKey });
+export function openAIAdapter(apiKey: string, model: string, effort: "none" | "low" | "medium", baseURL?: string): LLMAdapter {
+  const client = new OpenAI({ apiKey, baseURL, timeout: 20_000, maxRetries: 1 });
   return {
     async *turn({ instructions, input, tools }) {
       const stream = await client.responses.create({

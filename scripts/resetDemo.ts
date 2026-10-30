@@ -1,13 +1,15 @@
 // Resets demo state between rehearsals. Asks a running server first so screens refresh.
-import { loadSettings } from "../config/settings.js";
-import { openDb } from "../src/server/db.js";
-import { resetLive } from "../src/server/reset.js";
+import { existsSync } from "node:fs";
+import { resetLive } from "../src/data/reset.js";
+import { openSql } from "../src/data/sql.js";
 
-const s = loadSettings();
+if (existsSync(".env")) process.loadEnvFile(".env");
 try {
-  await fetch(`http://localhost:${s.PORT}/api/reset`, { method: "POST", signal: AbortSignal.timeout(2000) });
+  await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/reset`, { method: "POST", signal: AbortSignal.timeout(2000) });
   console.log("Reset through the running server");
 } catch {
-  resetLive(openDb());
+  const sql = await openSql();
+  await resetLive(sql);
+  await sql.close();
   console.log("Reset the database");
 }

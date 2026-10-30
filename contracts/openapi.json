@@ -1,0 +1,552 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Rishta",
+    "version": "1.0.0",
+    "description": "The contract any agent or channel uses to plug into Rishta."
+  },
+  "security": [
+    {
+      "apiKey": []
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "apiKey": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "schemas": {
+      "Brief": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "briefId": {
+            "type": "string"
+          },
+          "merchantId": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "soundbox",
+              "app",
+              "salesperson_visit",
+              "human_callback"
+            ]
+          },
+          "problem": {
+            "type": "string",
+            "enum": [
+              "fee_confusion",
+              "settlement_delay",
+              "device_fault",
+              "rent_too_high",
+              "rival_offer",
+              "low_sales_season",
+              "support_unresolved",
+              "closing_business",
+              "other",
+              "unknown"
+            ]
+          },
+          "approachId": {
+            "type": "string"
+          },
+          "goal": {
+            "type": "string"
+          },
+          "facts": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": [
+                "number",
+                "string"
+              ]
+            }
+          },
+          "allowedActions": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "getMerchantSummary",
+                "explainFee",
+                "checkDeviceHealth",
+                "raiseTicket",
+                "proposePlan",
+                "changePlan",
+                "scheduleHumanCallback",
+                "recordOutcome",
+                "recordOptOut",
+                "sendAppMessage"
+              ]
+            }
+          },
+          "limits": {
+            "type": "object",
+            "properties": {
+              "maxDiscountInr": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "maxDiscountInr"
+            ]
+          },
+          "mustSay": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mustNot": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "escalateIf": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "successCriteria": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "briefId",
+          "merchantId",
+          "displayName",
+          "language",
+          "channel",
+          "problem",
+          "approachId",
+          "goal",
+          "facts",
+          "allowedActions",
+          "limits",
+          "mustSay",
+          "mustNot",
+          "escalateIf",
+          "successCriteria"
+        ]
+      },
+      "Outcome": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "briefId": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "stayed",
+              "plan_changed",
+              "ticket_raised",
+              "handed_off",
+              "opted_out",
+              "left",
+              "no_response"
+            ]
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "fee_confusion",
+                    "settlement_delay",
+                    "device_fault",
+                    "rent_too_high",
+                    "rival_offer",
+                    "low_sales_season",
+                    "support_unresolved",
+                    "closing_business",
+                    "other",
+                    "unknown"
+                  ]
+                },
+                "quote": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "quote"
+              ]
+            }
+          },
+          "actionsTaken": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "getMerchantSummary",
+                "explainFee",
+                "checkDeviceHealth",
+                "raiseTicket",
+                "proposePlan",
+                "changePlan",
+                "scheduleHumanCallback",
+                "recordOutcome",
+                "recordOptOut",
+                "sendAppMessage"
+              ]
+            }
+          },
+          "durationSec": {
+            "type": "number"
+          },
+          "numbersVerified": {
+            "type": "boolean"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "briefId",
+          "outcome",
+          "reasons",
+          "actionsTaken",
+          "durationSec",
+          "numbersVerified",
+          "summary"
+        ]
+      },
+      "OutcomeEvent": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "const": "conversation.outcome"
+          },
+          "version": {
+            "type": "number",
+            "const": 1
+          },
+          "at": {
+            "type": "string"
+          },
+          "merchantId": {
+            "type": "string"
+          },
+          "conversationId": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "object",
+            "properties": {
+              "briefId": {
+                "type": "string"
+              },
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "stayed",
+                  "plan_changed",
+                  "ticket_raised",
+                  "handed_off",
+                  "opted_out",
+                  "left",
+                  "no_response"
+                ]
+              },
+              "reasons": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "enum": [
+                        "fee_confusion",
+                        "settlement_delay",
+                        "device_fault",
+                        "rent_too_high",
+                        "rival_offer",
+                        "low_sales_season",
+                        "support_unresolved",
+                        "closing_business",
+                        "other",
+                        "unknown"
+                      ]
+                    },
+                    "quote": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "quote"
+                  ]
+                }
+              },
+              "actionsTaken": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "getMerchantSummary",
+                    "explainFee",
+                    "checkDeviceHealth",
+                    "raiseTicket",
+                    "proposePlan",
+                    "changePlan",
+                    "scheduleHumanCallback",
+                    "recordOutcome",
+                    "recordOptOut",
+                    "sendAppMessage"
+                  ]
+                }
+              },
+              "durationSec": {
+                "type": "number"
+              },
+              "numbersVerified": {
+                "type": "boolean"
+              },
+              "summary": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "briefId",
+              "outcome",
+              "reasons",
+              "actionsTaken",
+              "durationSec",
+              "numbersVerified",
+              "summary"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "version",
+          "at",
+          "merchantId",
+          "conversationId",
+          "outcome"
+        ]
+      },
+      "OutreachEvent": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "const": "outreach.requested"
+          },
+          "version": {
+            "type": "number",
+            "const": 1
+          },
+          "at": {
+            "type": "string"
+          },
+          "merchantId": {
+            "type": "string"
+          },
+          "briefId": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "version",
+          "at",
+          "merchantId",
+          "briefId",
+          "channel"
+        ]
+      },
+      "PlanEvent": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "const": "plan.ready"
+          },
+          "version": {
+            "type": "number",
+            "const": 1
+          },
+          "at": {
+            "type": "string"
+          },
+          "plan": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "version",
+          "at",
+          "plan"
+        ]
+      }
+    }
+  },
+  "paths": {
+    "/v1/briefs": {
+      "get": {
+        "summary": "Today's briefs, one page at a time",
+        "parameters": [
+          {
+            "name": "channel",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "maximum": 500
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of briefs and the next cursor"
+          }
+        }
+      }
+    },
+    "/v1/briefs/{merchantId}": {
+      "get": {
+        "summary": "One merchant's brief",
+        "parameters": [
+          {
+            "name": "merchantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Brief",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Brief"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing planned today"
+          }
+        }
+      }
+    },
+    "/v1/outcomes": {
+      "post": {
+        "summary": "Report how a conversation ended. Safe to retry.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Outcome"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Recorded"
+          },
+          "404": {
+            "description": "Unknown brief"
+          }
+        }
+      }
+    },
+    "/v1/outreach/{merchantId}": {
+      "post": {
+        "summary": "Send today's nudge, after consent and contact-hour checks",
+        "parameters": [
+          {
+            "name": "merchantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Queued"
+          },
+          "409": {
+            "description": "Blocked by a guardrail"
+          }
+        }
+      }
+    },
+    "/v1/sessions": {
+      "post": {
+        "summary": "Mint a short-lived merchant token after Paytm login",
+        "responses": {
+          "200": {
+            "description": "Token"
+          }
+        }
+      }
+    }
+  }
+}

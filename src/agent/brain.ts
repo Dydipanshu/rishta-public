@@ -1,10 +1,12 @@
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { approachById } from "../../config/playbook.js";
-import { Outcome, type ActionName, type Brief, type OutcomeKind } from "../engine/brief.js";
+import { audit, type Sql } from "../data/sql.js";
+import { Brief, Outcome, type ActionName, type OutcomeKind } from "../engine/brief.js";
+import { recordOutcome } from "../engine/outcomes.js";
 import { REASON_CODES, ReasonCode } from "../engine/reasons.js";
-import { audit, type DB } from "../server/db.js";
-import { TODAY, OUTREACH_START_DAY } from "../sim/types.js";
+import type { PaytmCore } from "../ports.js";
 import { checkSentence, collectNumbers, takeChunks } from "./guard.js";
 import type { LLMAdapter, LLMItem } from "./llmAdapter.js";
 import { runTool, toolsFor, type ToolContext } from "./tools.js";
@@ -12,6 +14,7 @@ import { runTool, toolsFor, type ToolContext } from "./tools.js";
 const TEMPLATE = readFileSync(new URL("./prompts/system.md", import.meta.url), "utf8");
 const READ_TOOLS = new Set(["getMerchantSummary", "explainFee", "checkDeviceHealth", "proposePlan"]);
 const FALLBACK = "जी, मैं check करके बताती हूँ।";
+const FAILOVER = "माफ़ कीजिए, अभी दिक्कत आ रही है। Paytm से एक व्यक्ति आपको call करेगा।";
 const CLOSING_LINES: Record<string, string> = {
   scheduleHumanCallback: "जी, Paytm से एक व्यक्ति आपको call करेगा। धन्यवाद।",
   recordOptOut: "जी, अब हम आपसे संपर्क नहीं करेंगे। धन्यवाद।",
@@ -52,50 +55,113 @@ export interface Turn {
   text: string;
 }
 
-export class Conversation {
-  readonly id: string;
-  readonly transcript: Turn[] = [];
-  readonly actions: ActionName[] = [];
-  readonly guardEvents: string[] = [];
-  numbersVerified = true;
-  ended = false;
-  outcome: OutcomeKind | null = null;
-  private summary = "";
-  private input: LLMItem[] = [];
-  private allowed = new Set<string>();
-  private instructions: string;
-  private started = Date.now();
-  private ctx: ToolContext;
+export interface AgentDeps {
+  sql: Sql;
+  core: PaytmCore;
+  llm: LLMAdapter;
+}
 
-  constructor(private db: DB, readonly brief: Brief, private llm: LLMAdapter, why: string) {
-    this.id = `C-${brief.merchantId}-${this.started}`;
-    collectNumbers(brief.facts, this.allowed);
+// Everything a conversation needs to resume on any server.
+interface ConversationState {
+  id: string;
+  transcript: Turn[];
+  actions: ActionName[];
+  guardEvents: string[];
+  numbersVerified: boolean;
+  ended: boolean;
+  outcome: OutcomeKind | null;
+  summary: string;
+  input: LLMItem[];
+  allowed: string[];
+  started: number;
+}
+
+export class Conversation {
+  private allowed: Set<string>;
+  private instructions: string;
+  private ctx: ToolContext;
+  private version = 0;
+
+  private constructor(private deps: AgentDeps, readonly brief: Brief, private why: string, private state: ConversationState) {
+    this.allowed = new Set(state.allowed);
     this.instructions = buildInstructions(brief, why);
     this.ctx = {
-      db,
+      sql: deps.sql,
+      core: deps.core,
       brief,
       lastUserText: () => this.transcript.filter((t) => t.role === "merchant").at(-1)?.text ?? "",
       transcriptText: () => this.transcript.map((t) => `${t.role}: ${t.text}`).join("\n"),
       onOutcome: (outcome, summary) => {
-        this.outcome = outcome;
-        this.summary = summary;
-        this.ended = true;
+        this.state.outcome = outcome;
+        this.state.summary = summary;
+        this.state.ended = true;
       },
     };
-    db.prepare("INSERT INTO conversations (id, brief_id, merchant_id, started_at) VALUES (?, ?, ?, ?)").run(this.id, brief.briefId, brief.merchantId, new Date().toISOString());
+  }
+
+  static async start(deps: AgentDeps, brief: Brief, why: string) {
+    const started = Date.now();
+    const allowed = new Set<string>();
+    collectNumbers(brief.facts, allowed);
+    const conv = new Conversation(deps, brief, why, {
+      id: `C-${brief.merchantId}-${randomUUID()}`, transcript: [], actions: [], guardEvents: [], numbersVerified: true, ended: false,
+      outcome: null, summary: "", input: [], allowed: [...allowed], started,
+    });
+    const at = new Date(started).toISOString();
+    await deps.sql.run("INSERT INTO conversations (id, brief_id, merchant_id, started_at, updated_at, state) VALUES (?, ?, ?, ?, ?, ?)", [conv.id, brief.briefId, brief.merchantId, at, at, conv.snapshot()]);
+    return conv;
+  }
+
+  // Picks up the merchant's open conversation, whichever server started it.
+  static async resume(deps: AgentDeps, merchantId: string) {
+    const row = await deps.sql.get<{ state: string; version: number; brief_id: string }>("SELECT state, version, brief_id FROM conversations WHERE merchant_id = ? AND finished = 0 ORDER BY started_at DESC LIMIT 1", [merchantId]);
+    return row ? Conversation.fromRow(deps, row) : null;
+  }
+
+  // Conversations the merchant walked away from.
+  static async stale(deps: AgentDeps, idleMs: number, limit = 50) {
+    const cutoff = new Date(Date.now() - idleMs).toISOString();
+    const rows = await deps.sql.all<{ state: string; version: number; brief_id: string }>("SELECT state, version, brief_id FROM conversations WHERE finished = 0 AND updated_at < ? LIMIT ?", [cutoff, limit]);
+    return Promise.all(rows.map((r) => Conversation.fromRow(deps, r)));
+  }
+
+  private static async fromRow(deps: AgentDeps, row: { state: string; version: number; brief_id: string }) {
+    const b = await deps.sql.get<{ json: string; meta: string }>("SELECT json, meta FROM briefs WHERE brief_id = ?", [row.brief_id]);
+    if (!b) throw new Error(`Brief ${row.brief_id} is gone`);
+    const conv = new Conversation(deps, Brief.parse(JSON.parse(b.json)), JSON.parse(b.meta).why as string, JSON.parse(row.state) as ConversationState);
+    conv.version = row.version;
+    return conv;
+  }
+
+  get id() { return this.state.id; }
+  get transcript() { return this.state.transcript; }
+  get actions() { return this.state.actions; }
+  get guardEvents() { return this.state.guardEvents; }
+  get ended() { return this.state.ended; }
+  get numbersVerified() { return this.state.numbersVerified; }
+
+  private snapshot() {
+    return JSON.stringify({ ...this.state, allowed: [...this.allowed] });
+  }
+
+  // Saved after every turn. A false return means another server moved on first.
+  async save() {
+    const changed = await this.deps.sql.run("UPDATE conversations SET state = ?, updated_at = ?, version = version + 1 WHERE id = ? AND version = ? AND finished = 0", [this.snapshot(), new Date().toISOString(), this.id, this.version]);
+    if (changed === 1) this.version++;
+    return changed === 1;
   }
 
   opening() {
     const text = openingLine(String(this.brief.facts.firstName));
     this.transcript.push({ role: "agent", text });
-    this.input.push({ role: "assistant", content: text });
+    this.state.input.push({ role: "assistant", content: text });
     return text;
   }
 
   // Yields guarded chunks of speech for one merchant turn.
   async *reply(userText: string): AsyncGenerator<string> {
     this.transcript.push({ role: "merchant", text: userText });
-    this.input.push({ role: "user", content: userText });
+    this.state.input.push({ role: "user", content: userText });
 
     let retried = false;
     for (let round = 0; round < 4; round++) {
@@ -104,7 +170,7 @@ export class Conversation {
       let failed = false;
       let done: { items: LLMItem[]; calls: { callId: string; name: string; args: string }[] } | null = null;
 
-      for await (const event of this.llm.turn({ instructions: this.instructions, input: this.input, tools: toolsFor(this.brief) })) {
+      for await (const event of this.deps.llm.turn({ instructions: this.instructions, input: this.state.input, tools: toolsFor(this.brief) })) {
         if (event.type === "done") {
           done = event;
           break;
@@ -116,7 +182,7 @@ export class Conversation {
           const check = checkSentence(chunk, this.allowed);
           if (!check.ok) {
             this.guardEvents.push(check.reason);
-            audit(this.db, this.brief.merchantId, "guard_block", { chunk, reason: check.reason });
+            await audit(this.deps.sql, this.brief.merchantId, "guard_block", { chunk, reason: check.reason });
             failed = true;
             break;
           }
@@ -132,7 +198,7 @@ export class Conversation {
           const check = checkSentence(chunk, this.allowed);
           if (!check.ok) {
             this.guardEvents.push(check.reason);
-            audit(this.db, this.brief.merchantId, "guard_block", { chunk, reason: check.reason });
+            await audit(this.deps.sql, this.brief.merchantId, "guard_block", { chunk, reason: check.reason });
             failed = true;
             break;
           }
@@ -145,7 +211,7 @@ export class Conversation {
       if (failed) {
         if (!retried) {
           retried = true;
-          this.input.push({ role: "user", content: `[System note, not from the merchant: your last reply used something not allowed (${this.guardEvents.at(-1)}). Reply again using only figures from the facts, written as digits.]` });
+          this.state.input.push({ role: "user", content: `[System note, not from the merchant: your last reply used something not allowed (${this.guardEvents.at(-1)}). Reply again using only figures from the facts, written as digits.]` });
           continue;
         }
         yield* this.fallback();
@@ -153,12 +219,12 @@ export class Conversation {
       }
       if (!done) return;
 
-      this.input.push(...done.items);
+      this.state.input.push(...done.items);
       for (const call of done.calls) {
-        const result = runTool(this.ctx, call.name, call.args);
+        const result = await runTool(this.ctx, call.name, call.args);
         this.actions.push(call.name as ActionName);
         collectNumbers(result, this.allowed);
-        this.input.push({ type: "function_call_output", call_id: call.callId, output: JSON.stringify(result) });
+        this.state.input.push({ type: "function_call_output", call_id: call.callId, output: JSON.stringify(result) });
       }
       // Closing lines are fixed, so no second model call is needed.
       const closing = done.calls.map((c) => CLOSING_LINES[c.name]).find(Boolean);
@@ -176,58 +242,64 @@ export class Conversation {
     this.transcript.push({ role: "agent", text });
   }
 
-  private *fallback() {
-    this.numbersVerified = false;
+  private async *fallback() {
+    this.state.numbersVerified = false;
     const type = this.brief.problem === "device_fault" ? "device" : this.brief.problem === "rent_too_high" ? "rent" : "settlement";
-    const result = runTool(this.ctx, "raiseTicket", JSON.stringify({ type, note: "Agent could not verify a figure; needs a check." }));
+    const result = await runTool(this.ctx, "raiseTicket", JSON.stringify({ type, note: "Agent could not verify a figure; needs a check." }));
     this.actions.push("raiseTicket");
     collectNumbers(result, this.allowed);
     this.say(FALLBACK);
     yield FALLBACK;
   }
 
-  // Post-call step: reasons, outcome, and the learning loop.
-  async finish(): Promise<Outcome> {
-    this.ended = true;
+  // If the model or a Paytm service fails mid-call, a person takes over.
+  async failover(reason: string) {
+    await this.deps.core.scheduleCallback(this.brief.merchantId, reason, this.ctx.transcriptText());
+    this.ctx.onOutcome("handed_off", reason);
+    this.say(FAILOVER);
+    return FAILOVER;
+  }
+
+  // Post-call step: reasons, outcome, and the learning loop. Runs once per conversation.
+  async finish(): Promise<Outcome | null> {
+    this.state.ended = true;
     const merchantLines = this.transcript.filter((t) => t.role === "merchant").map((t) => t.text);
     const text = this.transcript.map((t) => `${t.role === "merchant" ? "MERCHANT" : "AGENT"}: ${t.text}`).join("\n");
 
-    let extraction: z.infer<typeof Extraction> = { reasons: [], teamSummary: this.summary, merchantMessage: "" };
+    let extraction: z.infer<typeof Extraction> = { reasons: [], teamSummary: this.state.summary, merchantMessage: "" };
     if (merchantLines.length > 0) {
-      extraction = await this.llm.extract({ instructions: EXTRACT_INSTRUCTIONS, text, schema: Extraction, name: "conversation_reasons" });
+      try {
+        extraction = await this.deps.llm.extract({ instructions: EXTRACT_INSTRUCTIONS, text, schema: Extraction, name: "conversation_reasons" });
+      } catch (err) {
+        await audit(this.deps.sql, this.brief.merchantId, "extract_failed", { message: (err as Error).message });
+      }
     }
     const reasons = extraction.reasons
       .filter((r) => r.code !== "unknown" && merchantLines.some((l) => l.includes(r.quote.trim())) && r.quote.trim())
       .map((r) => ({ code: ReasonCode.parse(r.code), quote: r.quote.trim() }));
 
     const kind: OutcomeKind =
-      this.outcome ?? (merchantLines.length === 0 ? "no_response" : this.actions.includes("raiseTicket") ? "ticket_raised" : "stayed");
+      this.state.outcome ?? (merchantLines.length === 0 ? "no_response" : this.actions.includes("raiseTicket") ? "ticket_raised" : "stayed");
 
     const outcome = Outcome.parse({
       briefId: this.brief.briefId,
       outcome: kind,
       reasons,
       actionsTaken: this.actions,
-      durationSec: Math.round((Date.now() - this.started) / 1000),
+      durationSec: Math.round((Date.now() - this.state.started) / 1000),
       numbersVerified: this.numbersVerified,
-      summary: extraction.teamSummary || this.summary,
+      summary: extraction.teamSummary || this.state.summary,
     });
 
-    const m = this.db.prepare("SELECT city, category, city_tier, category_group FROM merchants WHERE id = ?").get(this.brief.merchantId) as { city: string; category: string; city_tier: number; category_group: string };
-    const week = Math.floor((TODAY - OUTREACH_START_DAY) / 7) + 1;
-    const save = this.db.transaction(() => {
-      this.db.prepare("UPDATE conversations SET ended_at = ?, transcript = ?, numbers_verified = ? WHERE id = ?").run(new Date().toISOString(), JSON.stringify(this.transcript), +this.numbersVerified, this.id);
-      this.db.prepare("INSERT INTO outcomes VALUES (?, ?, ?, ?)").run(this.brief.briefId, this.brief.merchantId, JSON.stringify(outcome), new Date().toISOString());
-      for (const r of reasons) {
-        this.db.prepare("INSERT INTO reason_events (merchant_id, day, week, code, quote, city, category, live) VALUES (?, ?, ?, ?, ?, ?, ?, 1)").run(this.brief.merchantId, TODAY, week, r.code, r.quote, m.city, m.category);
-      }
-      // Kept stays empty for 30 days; the weekly update will count it then.
-      this.db.prepare("INSERT INTO contact_history VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)").run(this.brief.merchantId, TODAY, week, this.brief.problem, this.brief.approachId, "live", `T${m.city_tier}-${m.category_group}`, m.city, m.category);
-      const message = extraction.merchantMessage && checkSentence(extraction.merchantMessage, this.allowed).ok ? extraction.merchantMessage : "आपकी बात दर्ज हो गई है। धन्यवाद।";
-      this.db.prepare("INSERT INTO inbox (merchant_id, text, created_at) VALUES (?, ?, ?)").run(this.brief.merchantId, message, new Date().toISOString());
-      audit(this.db, this.brief.merchantId, "outcome", outcome);
+    const m = await this.deps.core.merchant(this.brief.merchantId);
+    const message = extraction.merchantMessage && checkSentence(extraction.merchantMessage, this.allowed).ok ? extraction.merchantMessage : "आपकी बात दर्ज हो गई है। धन्यवाद।";
+    const first = await this.deps.sql.tx(async (tx) => {
+      const claimed = await tx.run("UPDATE conversations SET finished = 1, ended_at = ?, transcript = ?, numbers_verified = ?, state = ? WHERE id = ? AND finished = 0", [new Date().toISOString(), JSON.stringify(this.transcript), +this.numbersVerified, this.snapshot(), this.id]);
+      if (claimed === 0) return false;
+      return recordOutcome(tx, this.id, this.brief, outcome, m);
     });
-    save();
+    if (!first) return null;
+    await this.deps.core.notify(this.brief.merchantId, message);
     return outcome;
   }
 }

@@ -22,20 +22,28 @@
     "build": "vite build",
     "start": "tsx src/server/index.ts",
     "reset": "tsx scripts/resetDemo.ts",
-    "typecheck:web": "tsc --noEmit -p web"
+    "typecheck:web": "tsc --noEmit -p web",
+    "daily": "tsx src/worker/daily.ts",
+    "contracts": "tsx scripts/writeContracts.ts"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
       "better-sqlite3",
-      "esbuild"
+      "esbuild",
+      "@embedded-postgres/linux-x64",
+      "embedded-postgres"
     ]
   },
   "dependencies": {
     "@fastify/multipart": "^10.1.6",
+    "@fastify/rate-limit": "^11.2.1",
     "@fastify/static": "^10.1.8",
+    "@prometheus-io/client": "^0.16.1",
     "better-sqlite3": "^13.0.3",
     "fastify": "^5.12.7",
+    "kafkajs": "^2.2.4",
     "openai": "^7.45.1",
+    "pg": "^8.23.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "sarvamai": "^1.1.14",
@@ -47,11 +55,13 @@
     "@tailwindcss/vite": "^4.3.3",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^20.19.43",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/seedrandom": "^3.0.8",
     "@vitejs/plugin-react": "^6.1.2",
     "concurrently": "^10.0.6",
+    "embedded-postgres": "17.5.0-beta.15",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",

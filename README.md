@@ -1,21 +1,20 @@
 # Rishta
 
-AI teammate for Paytm's merchant team. Read `CLAUDE.md` for the full plan.
+The manager between Paytm's predictions and its voice agents: it decides who to contact, about what, how, and who to leave alone, then learns what worked.
 
-## Step 1: voice test
+Design and integration: [ARCHITECTURE.md](ARCHITECTURE.md). Full plan: `CLAUDE.md`.
+
+## Run the demo
 
 ```bash
 pnpm install
-cp .env.example .env        # then add your Sarvam and OpenAI keys
-pnpm spike:check            # both keys work
-pnpm spike:openai           # tools + streaming work, with timings
-pnpm spike:tts              # writes voice samples to out/tts
+cp .env.example .env    # add your Sarvam and OpenAI keys
+pnpm seed
+pnpm build && pnpm start
 ```
 
-Then record the lines in `eval/stt-clips/clips.yaml` into that folder and run:
+Open http://localhost:3000/demo. Run `pnpm reset` between rehearsals.
 
-```bash
-pnpm spike:stt                   # word accuracy on saaras:v3 codemix
-pnpm spike:stt saaras:v4         # same clips on v4
-pnpm spike:latency eval/stt-clips/01.wav
-```
+## Checks
+
+`pnpm test` runs the automated tests and `pnpm eval` runs the conversation scenarios.

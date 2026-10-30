@@ -1,25 +1,27 @@
 import { PLAYBOOK, approachById } from "../../config/playbook.js";
-import { REASON_LABELS, SUGGESTED_MOVES, type ReasonCode } from "../engine/reasons.js";
+import type { Sql } from "../data/sql.js";
 import { feeFacts, summaryFacts } from "../engine/facts.js";
+import { REASON_LABELS, SUGGESTED_MOVES, type ReasonCode } from "../engine/reasons.js";
+import type { PaytmCore } from "../ports.js";
 import { TODAY } from "../sim/types.js";
-import type { DB } from "./db.js";
-import { loadMerchant } from "./store.js";
 
 type Row = Record<string, any>;
 const parse = <T = any>(s: string) => JSON.parse(s) as T;
 
 const COST_PER_MINUTE_INR = 3; // list-price estimate: STT + TTS + LLM
+const QUEUE_SIZE = 40;
 
-function queue(db: DB) {
-  const outcomes = new Map((db.prepare("SELECT merchant_id, json FROM outcomes").all() as Row[]).map((o) => [o.merchant_id, parse(o.json)]));
-  const rows = db.prepare("SELECT * FROM briefs ORDER BY sort_key DESC").all() as Row[];
+async function queue(sql: Sql) {
+  const rows = await sql.all(`SELECT * FROM briefs ORDER BY sort_key DESC LIMIT ${QUEUE_SIZE}`);
+  const ids = rows.map((r) => r.merchant_id);
+  const outcomes = new Map(ids.length ? (await sql.all(`SELECT merchant_id, json FROM outcomes WHERE merchant_id IN (${ids.map(() => "?").join(",")}) ORDER BY created_at`, ids)).map((o) => [o.merchant_id, parse(o.json)]) : []);
   return rows.map((r) => ({ brief: parse(r.json), meta: parse(r.meta), outcome: outcomes.get(r.merchant_id) ?? null }));
 }
 
-function why(db: DB) {
-  const events = db.prepare("SELECT * FROM reason_events ORDER BY live DESC, day DESC, id DESC").all() as Row[];
+async function why(sql: Sql) {
+  const events = await sql.all("SELECT * FROM reason_events WHERE day > ? ORDER BY live DESC, day DESC, id DESC", [TODAY - 56]);
   const recent = events.filter((e) => e.day > TODAY - 28);
-  const earlier = events.filter((e) => e.day <= TODAY - 28 && e.day > TODAY - 56);
+  const earlier = events.filter((e) => e.day <= TODAY - 28);
 
   const counts = new Map<string, number>();
   for (const e of recent) counts.set(e.code, (counts.get(e.code) ?? 0) + 1);
@@ -50,13 +52,13 @@ function why(db: DB) {
   return { reasons, spikes };
 }
 
-function playbook(db: DB) {
-  const rows = db.prepare("SELECT problem, approach_id, kept FROM contact_history WHERE kept IS NOT NULL").all() as Row[];
-  const shares = db.prepare("SELECT * FROM playbook_stats ORDER BY week").all() as Row[];
+async function playbook(sql: Sql) {
+  const rows = await sql.all("SELECT problem, approach_id, SUM(kept) AS kept, COUNT(*) AS n FROM contact_history WHERE kept IS NOT NULL GROUP BY problem, approach_id");
+  const shares = await sql.all("SELECT * FROM playbook_stats ORDER BY week");
   return (Object.keys(PLAYBOOK) as ReasonCode[]).map((problem) => {
     const keep = (id: string) => {
-      const list = rows.filter((r) => r.problem === problem && r.approach_id === id);
-      return { n: list.length, keepRate: list.length ? list.reduce((s, r) => s + r.kept, 0) / list.length : null };
+      const r = rows.find((x) => x.problem === problem && x.approach_id === id);
+      return { n: Number(r?.n ?? 0), keepRate: r ? Number(r.kept) / Number(r.n) : null };
     };
     const approaches = PLAYBOOK[problem]!.map((a) => ({
       id: a.id,
@@ -68,68 +70,73 @@ function playbook(db: DB) {
   });
 }
 
-function done(db: DB) {
-  const outcomes = (db.prepare("SELECT json FROM outcomes").all() as Row[]).map((o) => parse(o.json));
-  const conversations = db.prepare("SELECT merchant_id, numbers_verified, transcript FROM conversations WHERE ended_at IS NOT NULL").all() as Row[];
+async function done(sql: Sql) {
+  const outcomes = (await sql.all("SELECT json FROM outcomes")).map((o) => parse(o.json));
   const minutes = outcomes.reduce((s, o) => s + o.durationSec, 0) / 60;
   const resolved = outcomes.filter((o) => ["stayed", "plan_changed", "ticket_raised"].includes(o.outcome)).length;
+  const tickets = await sql.get("SELECT COUNT(*) AS c FROM tickets WHERE live = 1");
   return {
     conversations: outcomes.length,
     resolvedWithoutHuman: resolved,
-    ticketsRaised: (db.prepare("SELECT COUNT(*) c FROM tickets WHERE live = 1").get() as Row).c,
+    ticketsRaised: Number(tickets?.c ?? 0),
     plansChanged: outcomes.filter((o) => o.outcome === "plan_changed").length,
     escalations: outcomes.filter((o) => o.outcome === "handed_off").length,
     optOuts: outcomes.filter((o) => o.outcome === "opted_out").length,
     visitsSaved: resolved,
     costPerConversationInr: outcomes.length ? Math.round((minutes * COST_PER_MINUTE_INR * 10) / outcomes.length) / 10 : null,
     costPerMinuteInr: COST_PER_MINUTE_INR,
-    verified: conversations.filter((c) => c.numbers_verified).length,
+    verified: outcomes.filter((o) => o.numbersVerified).length,
   };
 }
 
-function humanWork(db: DB, q: ReturnType<typeof queue>) {
-  const handoffs = (db.prepare("SELECT * FROM handoffs ORDER BY id DESC").all() as Row[]).map((h): Row => ({ ...h, name: q.find((x) => x.brief.merchantId === h.merchant_id)?.meta.name ?? h.merchant_id, live: true }));
-  const callbacks = q.filter((x) => x.brief.channel === "human_callback" && !handoffs.some((h) => h.merchant_id === x.brief.merchantId)).map((x) => {
-    const notes = (db.prepare("SELECT note, opened_day FROM tickets WHERE merchant_id = ? AND (closed_day IS NULL OR closed_day > 179) ORDER BY opened_day").all(x.brief.merchantId) as Row[]);
-    const first = notes[0];
-    return {
-      merchant_id: x.brief.merchantId,
-      name: x.meta.name,
-      reason: x.meta.why,
-      summary: `${notes.length} open tickets, oldest ${first ? TODAY - first.opened_day : 0} days old. Latest note: ${notes.at(-1)?.note ?? "none"}. Rishta held back outreach: a person should call, with these tickets in hand.`,
-      live: false,
-    };
+async function humanWork(sql: Sql, core: PaytmCore) {
+  const handoffs = await sql.all("SELECT h.*, b.meta FROM handoffs h LEFT JOIN briefs b ON b.merchant_id = h.merchant_id ORDER BY h.id DESC LIMIT 20");
+  const live = handoffs.map((h) => ({ merchant_id: h.merchant_id, reason: h.reason, summary: h.summary, name: h.meta ? parse(h.meta).name : h.merchant_id, live: true }));
+  const callbacks = await sql.all("SELECT merchant_id, meta FROM briefs WHERE channel = 'human_callback' ORDER BY sort_key DESC LIMIT 20");
+  const waiting = await Promise.all(
+    callbacks.filter((c) => !live.some((h) => h.merchant_id === c.merchant_id)).map(async (c) => {
+      const meta = parse(c.meta);
+      const notes = await core.openTickets(c.merchant_id);
+      return {
+        merchant_id: c.merchant_id,
+        name: meta.name,
+        reason: meta.why,
+        summary: `${notes.length} open tickets, oldest ${notes[0] ? TODAY - notes[0].openedDay : 0} days old. Latest note: ${notes.at(-1)?.note ?? "none"}. Rishta held back outreach: a person should call, with these tickets in hand.`,
+        live: false,
+      };
+    }),
+  );
+  const visitRows = await sql.all("SELECT json, meta FROM briefs WHERE channel = 'salesperson_visit' ORDER BY value DESC LIMIT 20");
+  const visits = visitRows.map((v) => {
+    const brief = parse(v.json);
+    const meta = parse(v.meta);
+    return { merchantId: brief.merchantId, name: meta.name, city: meta.city, why: meta.why, say: approachById(brief.approachId)?.guidance ?? "", tried: "No proactive contact in the last 28 days" };
   });
-  const visits = q.filter((x) => x.brief.channel === "salesperson_visit").slice(0, 9).map((x) => ({
-    merchantId: x.brief.merchantId,
-    name: x.meta.name,
-    city: x.meta.city,
-    why: x.meta.why,
-    say: approachById(x.brief.approachId)?.guidance ?? "",
-    tried: "No proactive contact in the last 28 days",
-  }));
-  return { needsHuman: [...handoffs, ...callbacks], visits };
+  return { needsHuman: [...live, ...waiting], visits };
 }
 
-export function consoleView(db: DB) {
-  const plan = parse((db.prepare("SELECT json FROM daily_plan").get() as Row).json);
-  const q = queue(db);
+export async function consoleView(sql: Sql, core: PaytmCore) {
+  const plan = await sql.get("SELECT json FROM daily_plan");
+  const total = await sql.get("SELECT COUNT(*) AS c FROM briefs");
+  const [q, whyPanel, playbookPanel, donePanel, human, leftAlone] = await Promise.all([
+    queue(sql), why(sql), playbook(sql), done(sql), humanWork(sql, core),
+    sql.all("SELECT * FROM left_alone ORDER BY is_demo DESC, kind DESC, merchant_id LIMIT 12"),
+  ]);
   return {
-    plan,
-    queue: q.slice(0, 40),
-    queueTotal: q.length,
-    leftAlone: (db.prepare("SELECT * FROM left_alone ORDER BY is_demo DESC, kind DESC LIMIT 12").all() as Row[]).map((l) => ({ ...l, reasons: parse(l.reasons) })),
-    why: why(db),
-    playbook: playbook(db),
-    done: done(db),
-    ...humanWork(db, q),
+    plan: parse(plan!.json),
+    queue: q,
+    queueTotal: Number(total?.c ?? 0),
+    leftAlone: leftAlone.map((l) => ({ ...l, reasons: parse(l.reasons) })),
+    why: whyPanel,
+    playbook: playbookPanel,
+    done: donePanel,
+    ...human,
   };
 }
 
-export function merchantView(db: DB, id: string) {
-  const m = loadMerchant(db, id);
-  const brief = db.prepare("SELECT json FROM briefs WHERE merchant_id = ?").get(id) as Row | undefined;
-  const fee = feeFacts(m, TODAY);
+export async function merchantView(sql: Sql, core: PaytmCore, id: string) {
+  const m = await core.merchant(id);
+  const brief = await sql.get("SELECT json FROM briefs WHERE merchant_id = ?", [id]);
   return {
     id: m.id,
     name: m.name,
@@ -137,10 +144,10 @@ export function merchantView(db: DB, id: string) {
     plan: { id: m.planId, rent: m.monthlyRent },
     today: m.days[TODAY]!.value,
     ...summaryFacts(m, TODAY),
-    fee,
+    fee: feeFacts(m, TODAY),
     hasBrief: !!brief,
     channel: brief ? parse(brief.json).channel : null,
-    inbox: db.prepare("SELECT text, created_at FROM inbox WHERE merchant_id = ? ORDER BY id DESC").all(id),
-    tickets: db.prepare("SELECT id, type, status, note FROM tickets WHERE merchant_id = ? AND live = 1 ORDER BY id DESC").all(id),
+    inbox: await sql.all("SELECT text, created_at FROM inbox WHERE merchant_id = ? ORDER BY id DESC", [id]),
+    tickets: await sql.all("SELECT id, type, status, note FROM tickets WHERE merchant_id = ? AND live = 1 ORDER BY id DESC", [id]),
   };
 }

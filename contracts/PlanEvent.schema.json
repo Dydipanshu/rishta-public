@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string",
+      "const": "plan.ready"
+    },
+    "version": {
+      "type": "number",
+      "const": 1
+    },
+    "at": {
+      "type": "string"
+    },
+    "plan": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {}
+    }
+  },
+  "required": [
+    "id",
+    "type",
+    "version",
+    "at",
+    "plan"
+  ]
+}

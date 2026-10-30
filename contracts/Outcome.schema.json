@@ -1,0 +1,87 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "briefId": {
+      "type": "string"
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "stayed",
+        "plan_changed",
+        "ticket_raised",
+        "handed_off",
+        "opted_out",
+        "left",
+        "no_response"
+      ]
+    },
+    "reasons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "fee_confusion",
+              "settlement_delay",
+              "device_fault",
+              "rent_too_high",
+              "rival_offer",
+              "low_sales_season",
+              "support_unresolved",
+              "closing_business",
+              "other",
+              "unknown"
+            ]
+          },
+          "quote": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "quote"
+        ]
+      }
+    },
+    "actionsTaken": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "getMerchantSummary",
+          "explainFee",
+          "checkDeviceHealth",
+          "raiseTicket",
+          "proposePlan",
+          "changePlan",
+          "scheduleHumanCallback",
+          "recordOutcome",
+          "recordOptOut",
+          "sendAppMessage"
+        ]
+      }
+    },
+    "durationSec": {
+      "type": "number"
+    },
+    "numbersVerified": {
+      "type": "boolean"
+    },
+    "summary": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "briefId",
+    "outcome",
+    "reasons",
+    "actionsTaken",
+    "durationSec",
+    "numbersVerified",
+    "summary"
+  ]
+}
