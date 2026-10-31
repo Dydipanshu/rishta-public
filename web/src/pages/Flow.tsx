@@ -387,7 +387,7 @@ function Welcome({ start }: { start: () => void }) {
           </div>
           <div className="card bg-paper p-4" aria-hidden>
             <div className="text-xs font-medium text-muted">Three days after a ticket</div>
-            <div className="mt-2 w-fit max-w-[90%] rounded-2xl rounded-tl-sm bg-white px-3 py-2 shadow-sm">Sharma जी, मैं Paytm की AI assistant, आपकी machine वाली शिकायत के बारे में वापस आई हूँ।</div>
+            <div className="mt-2 w-fit max-w-[90%] rounded-2xl rounded-tl-sm bg-white px-3 py-2 shadow-sm">नमस्ते Sharma जी, आपकी machine वाली दिक्कत ठीक हुई?</div>
             <div className="ml-auto mt-2 w-fit max-w-[90%] rounded-2xl rounded-tr-sm bg-navy px-3 py-2 text-white">नहीं, अभी तक कुछ नहीं हुआ।</div>
             <div className="mt-2 w-fit max-w-[90%] rounded-2xl rounded-tl-sm bg-white px-3 py-2 shadow-sm">जी, Paytm से एक व्यक्ति आपको call करेगा।</div>
             <div className="mt-3 flex items-center gap-1.5 text-sm font-semibold text-paytm-deep"><Icon name="check" size={16} />A problem closes only when the shop says so.</div>
@@ -554,7 +554,6 @@ function LivePanel({ shop }: { shop: any }) {
       <div className="font-semibold leading-snug">{brief?.goal ?? "Answer what the shop came to ask"}</div>
       <ol className="mt-3 space-y-2 text-sm">
         {brief ? <Tick>Brief ready: {meta.approachLabel}</Tick> : <Tick>The shop came to us: normal service</Tick>}
-        {live && <Tick>Said it's an AI, and the no-OTP line</Tick>}
         {live?.numbersChecked > 0 && <Tick>{live.numbersChecked} {live.numbersChecked === 1 ? "number" : "numbers"} checked before speaking</Tick>}
         {live?.guardEvents.length > 0 && <Tick warn>{live.guardEvents.length} blocked by the guard, never spoken</Tick>}
         {actions.map((a: string, i: number) => <Tick key={i}>{ACTIONS[a] ?? a}</Tick>)}

@@ -63,7 +63,7 @@ export type Outcome = z.infer<typeof Outcome>;
 // A problem only counts as solved when the shop says so. A raised ticket is work in progress.
 export const SOLVED: readonly OutcomeKind[] = ["stayed", "plan_changed", "fix_confirmed", "emi_reset", "loan_accepted"];
 
-export const MUST_SAY = ["Main Paytm ki AI assistant hoon.", "Paytm kabhi OTP ya PIN nahi maangta."];
+export const MUST_SAY = ["If asked, say honestly that this is Paytm's AI assistant.", "If OTP or PIN comes up, say Paytm never asks for them."];
 export const MUST_NOT = [
   "Ask for OTP, PIN, password, card or bank details",
   "Send links",

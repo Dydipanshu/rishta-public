@@ -6,7 +6,7 @@ import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { Settings } from "../../config/settings.js";
-import { Conversation, openingLine, type AgentDeps } from "../agent/brain.js";
+import { Conversation, helloLine, openingLine, type AgentDeps } from "../agent/brain.js";
 import { TOPICS } from "../contracts/events.js";
 import { resetLive } from "../data/reset.js";
 import { audit } from "../data/sql.js";
@@ -213,7 +213,8 @@ export async function buildApp(d: AppDeps) {
       };
       const clear = heardClearly(text, language);
       if (clear) send({ type: "transcript", text });
-      if (isNew) send({ type: "say", ...(await voiced(conv.opening(isEnglish(text)))) });
+      const hello = isNew ? conv.opening(isEnglish(text)) : "";
+      if (hello) send({ type: "say", ...(await voiced(hello)) });
       if (!clear) {
         await conv.save();
         send({ type: "say", ...(await voiced("जी, मुझे सुनाई नहीं दिया। कृपया फिर से बोलिए।")) });
@@ -348,7 +349,7 @@ export async function buildApp(d: AppDeps) {
 
   async function prewarm() {
     const firstNames = await sql.all<{ first_name: string }>("SELECT first_name FROM merchants WHERE is_demo = 1");
-    await tts.prewarm([ANNOUNCEMENT, ...FILLERS, NUDGE, ...firstNames.map((m) => openingLine(m.first_name))]);
+    await tts.prewarm([ANNOUNCEMENT, ...FILLERS, NUDGE, ...firstNames.flatMap((m) => [openingLine(m.first_name), helloLine(m.first_name)])]);
   }
 
   // Any server can close abandoned conversations; finish() runs only once.

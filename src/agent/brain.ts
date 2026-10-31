@@ -60,8 +60,10 @@ function confirmation(call: string, result: Record<string, unknown>, english: bo
 
 const greet = (name: string, tail: string) => (/^(ji|जी)?$/i.test(name.trim()) ? "" : `${name} ${tail}`);
 
+// Only when Rishta reached out does it say who is speaking, once. When the shop speaks first the agent just answers.
 export const openingLine = (firstName: string, english = false) =>
-  english ? `${greet(firstName, "ji, ")}I'm Paytm's AI assistant. Paytm never asks for your OTP or PIN.` : `${greet(firstName, "जी, ")}मैं Paytm की AI assistant हूँ। Paytm कभी OTP या PIN नहीं माँगता।`;
+  english ? `Namaste ${greet(firstName, "ji, ")}this is Paytm's AI assistant.` : `नमस्ते ${greet(firstName, "जी, ")}Paytm की AI assistant बोल रही हूँ।`;
+export const helloLine = (firstName: string) => `नमस्ते ${greet(firstName, "जी, ")}बताइए, क्या मदद करूँ?`;
 
 function buildInstructions(brief: Brief, why: string, memory: string) {
   const { firstName, ...facts } = brief.facts;
@@ -205,10 +207,11 @@ export class Conversation {
 
   // A check-back says what it remembers, because that is the point of it.
   opening(english = false) {
+    if (this.brief.channel === "inbound") return "";
     const name = String(this.brief.facts.firstName);
     const waiting = this.state.promise;
     const text = waiting
-      ? (english ? `${greet(name, "ji, ")}this is Paytm's AI assistant, checking back on your ${waiting} problem.` : `${greet(name, "जी, ")}मैं Paytm की AI assistant, आपकी ${waiting} वाली शिकायत के बारे में वापस आई हूँ।`)
+      ? (english ? `Namaste ${greet(name, "ji, ")}has your ${waiting} problem been sorted?` : `नमस्ते ${greet(name, "जी, ")}आपकी ${waiting} वाली दिक्कत ठीक हुई?`)
       : openingLine(name, english);
     this.transcript.push({ role: "agent", text });
     this.state.input.push({ role: "assistant", content: text });
@@ -217,7 +220,7 @@ export class Conversation {
 
   // A shop that only said hello hasn't asked anything yet, so nothing goes to the model.
   askHowToHelp(said = "") {
-    const text = "जी, बताइए, मैं आपकी क्या मदद करूँ?";
+    const text = said ? helloLine(String(this.brief.facts.firstName)) : "जी, बताइए, क्या मदद करूँ?";
     if (said) {
       this.transcript.push({ role: "merchant", text: said });
       this.state.input.push({ role: "user", content: said });
