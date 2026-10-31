@@ -7,10 +7,11 @@ import "@fontsource/ibm-plex-mono/500.css";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 import Flow from "./pages/Flow";
+import Live from "./pages/Live";
 import MerchantPhone from "./pages/MerchantPhone";
 import Sales from "./pages/Sales";
 import Voices from "./pages/Voices";
 
 const path = window.location.pathname;
-const Page = path.startsWith("/phone/") ? MerchantPhone : path.startsWith("/sales") ? Sales : path.startsWith("/voices") ? Voices : Flow;
+const Page = path.startsWith("/phone/") ? MerchantPhone : path.startsWith("/sales") ? Sales : path.startsWith("/voices") ? Voices : path.startsWith("/demo") ? Flow : Live;
 createRoot(document.getElementById("root")!).render(<Page />);

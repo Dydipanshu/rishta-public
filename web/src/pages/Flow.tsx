@@ -627,13 +627,17 @@ function Search({ list, open }: { list: any; open: (id: string) => void }) {
   );
 }
 
+// The walkthrough lives under /demo. Inside it, paths stay short.
+const here = () => window.location.pathname.replace(/^\/demo/, "") + window.location.search;
+
 export default function Flow() {
-  const [url, setUrl] = useState(window.location.pathname + window.location.search);
+  const [url, setUrl] = useState(here());
   const [v, setV] = useState<View | null>(null);
   const [flash, setFlash] = useState(false);
   const [settled, setSettled] = useState<any[] | null>(null);
   const [error, setError] = useState("");
-  const [path, query = ""] = url.split("?");
+  const [rawPath, query = ""] = url.split("?");
+  const path = rawPath || "/";
   const params = new URLSearchParams(query);
   const shop = params.get("shop") ?? "M001";
   const tab = TAB[params.get("tab") ?? "talk"] ?? "handled";
@@ -641,12 +645,12 @@ export default function Flow() {
   const [item, setItem] = useState<any>(undefined);
 
   const go = useCallback((to: string) => {
-    history.pushState(null, "", to);
+    history.pushState(null, "", `/demo${to === "/" ? "" : to}`);
     setUrl(to);
     setError("");
   }, []);
   useEffect(() => {
-    const back = () => setUrl(window.location.pathname + window.location.search);
+    const back = () => setUrl(here());
     addEventListener("popstate", back);
     return () => removeEventListener("popstate", back);
   }, []);
@@ -733,7 +737,8 @@ export default function Flow() {
             const on = path === p || (p === "/talk" && path === "/result");
             return <li key={p}><button aria-current={on ? "page" : undefined} onClick={() => go(["/shop", "/talk"].includes(p) ? withShop(p) : p)} className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[0.95rem] ${on ? "bg-paytm/12 font-semibold text-paytm-deep" : "text-muted hover:bg-paper hover:text-ink"}`}><Icon name={icon} />{label}</button></li>;
           })}
-          <li className="pt-3"><a href="/sales" target="_blank" rel="noreferrer" className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[0.95rem] text-muted hover:bg-paper hover:text-ink"><Icon name="phone" />Sales app</a></li>
+          <li className="pt-3"><a href="/" className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[0.95rem] font-semibold text-paytm-deep hover:bg-paper"><Icon name="talk" />Talk as any shop</a></li>
+          <li><a href="/sales" target="_blank" rel="noreferrer" className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[0.95rem] text-muted hover:bg-paper hover:text-ink"><Icon name="phone" />Sales app</a></li>
         </ul>
         <div className="space-y-2 border-t border-line p-3 text-sm">
           <Pill tone="warn">Simulated test bench</Pill>

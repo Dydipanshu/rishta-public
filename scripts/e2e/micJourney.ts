@@ -69,7 +69,7 @@ const bubbles = page.locator("div.bg-navy.ml-auto");
 const body = () => page.locator("main").innerText();
 const next = (name: string | RegExp) => page.getByRole("contentinfo").getByRole("button", { name }).click({ timeout: 8000 });
 
-await page.goto(`${BASE}/`);
+await page.goto(`${BASE}/demo`);
 await page.getByRole("button", { name: "Start", exact: true }).click();
 await page.waitForURL("**/today");
 await next("See who and why");

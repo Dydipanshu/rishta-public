@@ -73,6 +73,7 @@ describe("production API", () => {
   });
 
   it("hands over to a person when the model is down", async () => {
+    await sql.run("INSERT INTO outreach (brief_id, merchant_id, channel, created_at) VALUES (?, 'A1', 'soundbox', '2026-01-01')", [brief.briefId]);
     const res = await app.inject({ method: "POST", url: "/api/talk/A1", headers: asMerchant("A1"), payload: { text: "मदद चाहिए" } });
     expect(res.payload).toContain("Paytm से एक व्यक्ति");
     expect(await sql.all("SELECT * FROM handoffs WHERE merchant_id = 'A1'")).toHaveLength(1);

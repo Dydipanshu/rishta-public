@@ -240,11 +240,25 @@ export async function decisionsView(sql: Sql) {
   };
 }
 
+// Every shop can be searched, not only the demo ones. A random pick is what shows nothing is scripted.
+export async function shopsView(sql: Sql, q: string) {
+  const like = `%${q.trim()}%`;
+  const rows = await sql.all<{ id: string; name: string; city: string; category: string; is_demo: number; meta: string | null; left_kind: string | null }>(
+    `SELECT m.id, m.name, m.city, m.category, m.is_demo, b.meta, l.kind AS left_kind FROM merchants m
+     LEFT JOIN briefs b ON b.merchant_id = m.id AND b.sort_key >= 0 LEFT JOIN left_alone l ON l.merchant_id = m.id
+     WHERE m.name LIKE ? OR m.city LIKE ? OR m.id LIKE ? ORDER BY m.is_demo DESC, (b.meta IS NULL), m.id LIMIT 60`, [like, like, like]);
+  const total = await sql.get<{ n: number }>("SELECT COUNT(*) AS n FROM merchants");
+  return {
+    total: Number(total?.n ?? 0),
+    shops: rows.map((r) => ({ id: r.id, name: r.name, city: r.city, category: r.category, demo: !!r.is_demo, status: r.left_kind ? "Left alone" : r.meta ? String(parse(r.meta).reasonLabel) : "No issue today" })),
+  };
+}
+
 async function latestConversation(sql: Sql, id: string) {
-  const row = await sql.get<{ state: string; finished: number }>("SELECT state, finished FROM conversations WHERE merchant_id = ? ORDER BY started_at DESC LIMIT 1", [id]);
+  const row = await sql.get<{ id: string; state: string; finished: number }>("SELECT id, state, finished FROM conversations WHERE merchant_id = ? ORDER BY started_at DESC LIMIT 1", [id]);
   if (!row) return null;
   const s = parse(row.state);
-  return { transcript: s.transcript as { role: string; text: string }[], actions: s.actions as string[], numbersChecked: (s.numbersChecked ?? 0) as number, guardEvents: s.guardEvents as string[], ended: !!row.finished || !!s.ended };
+  return { id: row.id, transcript: s.transcript as { role: string; text: string }[], actions: s.actions as string[], numbersChecked: (s.numbersChecked ?? 0) as number, guardEvents: s.guardEvents as string[], ended: !!row.finished || !!s.ended };
 }
 
 // One shop, whatever Rishta decided about it. Null means no such shop.

@@ -13,7 +13,7 @@ interface Merchant {
   fee: { feeInr: number; gstInr: number; feePlusGstInr: number };
   plan: { rent: number };
   channel: string | null;
-  conversation: { transcript: Line[]; ended: boolean } | null;
+  conversation: { id: string; transcript: Line[]; ended: boolean } | null;
   inbox: { text: string; created_at: string }[];
   tickets: { id: string; type: string; status: string; note: string; promise: string | null }[];
   savedYearInr: number;
@@ -41,7 +41,7 @@ function Soundbox({ active }: { active: boolean }) {
 
 const TILES = [["QR", "M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm10 0h2v2h-2v-2Zm4 0h2v6h-6v-2h4v-4Z"], ["Payments", "M3 6h18v12H3V6Zm0 4h18"], ["Settlement", "M4 19V9l8-5 8 5v10H4Zm5 0v-6h6v6"], ["Soundbox", "M7 3h10v18H7V3Zm5 13a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"]] as const;
 
-export default function MerchantPhone({ shopId, tips = [], onTip }: { shopId?: string; tips?: string[]; onTip?: boolean }) {
+export default function MerchantPhone({ shopId, tips = [], onTip, free }: { shopId?: string; tips?: string[]; onTip?: boolean; free?: boolean }) {
   const embedded = !!shopId;
   const [id, setId] = useState(fixedId ?? shopId ?? "M001");
   const [m, setM] = useState<Merchant | null>(null);
@@ -49,23 +49,41 @@ export default function MerchantPhone({ shopId, tips = [], onTip }: { shopId?: s
   const [lines, setLines] = useState<Line[]>([]);
   const [nudge, setNudge] = useState("");
   const [typed, setTyped] = useState("");
-  const [showText, setShowText] = useState(false);
+  const [showText, setShowText] = useState(!!free);
+  const [cleared, setCleared] = useState<string | null>(null);
+  const conversation = m?.conversation?.id === cleared ? null : m?.conversation;
   const [armed, setArmed] = useState(embedded);
   const end = useRef<HTMLDivElement>(null);
 
+  const clearedRef = useRef<string | null>(null);
   const load = useCallback(() => {
     void fetch(`/api/merchant/${id}`).then(async (r) => {
       if (!r.ok) return setMissing(true);
       const next = (await r.json()) as Merchant;
       setM(next);
       // After a reload the conversation comes back from the server.
-      setLines((now) => (now.length === 0 && next.conversation ? next.conversation.transcript : now));
+      setLines((now) => (now.length === 0 && next.conversation && next.conversation.id !== clearedRef.current ? next.conversation.transcript : now));
     });
   }, [id]);
   useEffect(load, [load]);
 
   const onLine = useCallback((l: Line) => setLines((x) => [...x, l]), []);
   const ptt = usePushToTalk(id, onLine, load);
+  const { stop: stopAudio, sendText } = ptt;
+  useEffect(() => stopAudio, [stopAudio]);
+  const startNew = () => {
+    clearedRef.current = m?.conversation?.id ?? null;
+    setCleared(clearedRef.current);
+    setLines([]);
+    setNudge("");
+    stopAudio();
+  };
+  useEffect(() => {
+    if (!free) return;
+    const say = (e: Event) => sendText((e as CustomEvent<string>).detail);
+    addEventListener("rishta-say", say);
+    return () => removeEventListener("rishta-say", say);
+  }, [free, sendText]);
 
   useEvents((e) => {
     if (e.type === "reset") {
@@ -74,7 +92,7 @@ export default function MerchantPhone({ shopId, tips = [], onTip }: { shopId?: s
       ptt.stop();
     }
     if (e.type === "changed") load();
-    if (e.type === "nudge" && e.merchantId && (!fixedId || e.merchantId === fixedId)) {
+    if (e.type === "nudge" && e.merchantId && e.merchantId === (fixedId ?? shopId ?? e.merchantId)) {
       setId(e.merchantId);
       setLines([]);
       setNudge(e.card ?? "");
@@ -96,7 +114,7 @@ export default function MerchantPhone({ shopId, tips = [], onTip }: { shopId?: s
 
   // Device faults come through the app because the Soundbox itself may be failing.
   const inApp = m?.channel === "app";
-  const ended = !!m?.conversation?.ended;
+  const ended = !!conversation?.ended;
   const busy = ptt.thinking || ended;
   const status = ended && !ptt.speaking ? "बातचीत पूरी हुई" : ptt.recording ? "सुन रही हूँ…" : ptt.thinking ? "देख रही हूँ…" : ptt.speaking ? "बोल रही हूँ…" : nudge || lines.length ? "बटन दबाकर रखें और बोलें" : "सब ठीक चल रहा है";
   const talking = nudge !== "" || lines.length > 0;
@@ -144,7 +162,7 @@ export default function MerchantPhone({ shopId, tips = [], onTip }: { shopId?: s
             </div>
           )}
 
-          {!talking && !(m?.tickets.length || m?.inbox.length) && (
+          {!talking && (free || !(m?.tickets.length || m?.inbox.length)) && (
             <div className="px-8 py-8 text-center text-muted">
               <div className="text-lg font-semibold text-navy">कोई सवाल है?</div>
               <p className="mt-1">नीचे का बटन दबाकर रखें और बोलें। जैसे, "मेरा settlement कम क्यों आया?"</p>
@@ -162,7 +180,7 @@ export default function MerchantPhone({ shopId, tips = [], onTip }: { shopId?: s
             </div>
           )}
 
-          {(m?.tickets.length || m?.inbox.length) ? (
+          {!free && (m?.tickets.length || m?.inbox.length) ? (
             <div className="space-y-2 px-4 py-3">
               <div className="text-xs font-semibold text-muted">आपके लिए</div>
               {m.savedYearInr > 0 && <div className="rise rounded-xl border-l-4 border-kept bg-white px-3 py-2 text-sm"><b>{inr(m.savedYearInr)} की बचत</b><div className="text-muted">नए plan से हर साल</div></div>}
@@ -175,6 +193,7 @@ export default function MerchantPhone({ shopId, tips = [], onTip }: { shopId?: s
         <div className="border-t border-line bg-white px-4 pb-4 pt-3">
           {ptt.error && <div className="mb-2 text-sm text-callback">{ptt.error}</div>}
           {onTip && tip && !busy && !ptt.recording && <button onClick={() => { ptt.sendText(tip); }} className="rise mb-2 w-full rounded-xl border-2 border-paytm px-3 py-2 text-left text-sm"><span className="block text-xs text-muted">Tap to say this, or hold the mic and speak</span>{tip}</button>}
+          {free && ended && !ptt.speaking && <button onClick={startNew} className="mb-2 w-full rounded-xl bg-navy px-3 py-2.5 font-semibold text-white">नई बात शुरू करें</button>}
           {showText && !ended ? (
             <form className="mb-2 flex gap-2" onSubmit={(e) => { e.preventDefault(); if (typed.trim() && !busy) { ptt.sendText(typed); setTyped(""); } }}>
               <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="यहाँ लिखें" aria-label="Type your message" className="min-w-0 flex-1 rounded-full border border-line px-4 py-2" />

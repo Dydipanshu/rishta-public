@@ -5,7 +5,7 @@ import { detectProblem } from "../models/problems.js";
 import type { Sql } from "../data/sql.js";
 import type { PaytmCore } from "../ports.js";
 import { TODAY, type Merchant } from "../sim/types.js";
-import { ACTION_NAMES, Brief, ESCALATE_IF, MUST_NOT, MUST_SAY, type ActionName } from "./brief.js";
+import { ACTION_NAMES, Brief, ESCALATE_IF, MUST_NOT, MUST_SAY } from "./brief.js";
 import { factsFor } from "./facts.js";
 import { openPromises } from "./memory.js";
 import { REASON_LABELS } from "./reasons.js";
@@ -14,11 +14,10 @@ import { REASON_LABELS } from "./reasons.js";
 // Works for any shop: left-alone and no-contact shops still get normal service.
 function serviceBrief(m: Merchant, id: string, channel: "inbound" | "app", goal: string, approachId: string) {
   const problem = detectProblem(buildFeatures(m, TODAY))?.problem ?? "unknown";
-  const allowedActions = ACTION_NAMES.filter((a) => !(["changePlan", "proposePlan"] as ActionName[]).includes(a) || problem === "rent_too_high");
   return Brief.parse({
     briefId: id, merchantId: m.id, displayName: m.name, language: m.language, channel, problem, approachId, goal,
-    facts: { ...factsFor(m, TODAY, problem, false), ...factsFor(m, TODAY, "fee_confusion", false) },
-    allowedActions, limits: { maxDiscountInr: MAX_MONTHLY_DISCOUNT_INR }, mustSay: MUST_SAY, mustNot: MUST_NOT, escalateIf: ESCALATE_IF,
+    facts: { ...factsFor(m, TODAY, problem, false), ...factsFor(m, TODAY, "rent_too_high", false), ...factsFor(m, TODAY, "fee_confusion", false) },
+    allowedActions: ACTION_NAMES, limits: { maxDiscountInr: MAX_MONTHLY_DISCOUNT_INR }, mustSay: MUST_SAY, mustNot: MUST_NOT, escalateIf: ESCALATE_IF,
     successCriteria: "The shop's question is answered, or a person has it",
   });
 }

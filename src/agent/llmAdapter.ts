@@ -1,6 +1,10 @@
+import { setDefaultAutoSelectFamilyAttemptTimeout } from "node:net";
 import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import type { z } from "zod";
+
+// Node gives each address 250 ms by default, which fails every model call on a slow venue network.
+setDefaultAutoSelectFamilyAttemptTimeout(3000);
 
 export type LLMItem = OpenAI.Responses.ResponseInputItem;
 

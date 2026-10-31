@@ -203,14 +203,25 @@ export class Conversation {
     return changed === 1;
   }
 
-  // Second time today it stays short. A check-back says what it remembers, because that is the point of it.
+  // A check-back says what it remembers, because that is the point of it.
   opening(english = false) {
-    const seen = !!this.state.memory && !this.state.memory.includes("Nothing yet");
     const name = String(this.brief.facts.firstName);
     const waiting = this.state.promise;
     const text = waiting
       ? (english ? `${greet(name, "ji, ")}this is Paytm's AI assistant, checking back on your ${waiting} problem.` : `${greet(name, "जी, ")}मैं Paytm की AI assistant, आपकी ${waiting} वाली शिकायत के बारे में वापस आई हूँ।`)
-      : seen ? (english ? "This is Paytm's AI assistant again." : "जी, मैं Paytm की AI assistant ही हूँ।") : openingLine(name, english);
+      : openingLine(name, english);
+    this.transcript.push({ role: "agent", text });
+    this.state.input.push({ role: "assistant", content: text });
+    return text;
+  }
+
+  // A shop that only said hello hasn't asked anything yet, so nothing goes to the model.
+  askHowToHelp(said = "") {
+    const text = "जी, बताइए, मैं आपकी क्या मदद करूँ?";
+    if (said) {
+      this.transcript.push({ role: "merchant", text: said });
+      this.state.input.push({ role: "user", content: said });
+    }
     this.transcript.push({ role: "agent", text });
     this.state.input.push({ role: "assistant", content: text });
     return text;

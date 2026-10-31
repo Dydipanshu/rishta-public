@@ -25,7 +25,7 @@ import type { makeTts } from "../voice/tts.js";
 import { bearer, issueMerchantToken, merchantFromToken, validKey } from "./auth.js";
 import { metrics, registry } from "./metrics.js";
 import { openapi } from "./openapi.js";
-import { consoleView, decisionsView, merchantView, shopView } from "./views.js";
+import { consoleView, decisionsView, merchantView, shopView, shopsView } from "./views.js";
 
 export interface AppDeps extends AgentDeps {
   s: Settings;
@@ -39,17 +39,10 @@ export interface AppDeps extends AgentDeps {
 
 const ANNOUNCEMENT = "Paytm पर पाँच सौ रुपये प्राप्त हुए।";
 const FILLERS = ["जी, एक second।", "जी, देखती हूँ।"];
-const NUDGES: Record<string, string> = {
-  loan_overdue: "आपके loan के बारे में बात करनी है, मदद के लिए। नीचे का बटन दबाइए।",
-  loan_opportunity: "आपकी बिक्री बढ़ रही है। त्योहार के stock के लिए एक सुझाव है, जानने के लिए बटन दबाइए।",
-  fee_confusion: "आपके settlement में कुछ कम आया है। जानने के लिए नीचे का बटन दबाइए।",
-  device_fault: "आपकी मशीन में कुछ दिक्कत दिख रही है। जानने के लिए नीचे का बटन दबाइए।",
-  rent_too_high: "आपके plan के बारे में एक ज़रूरी बात है। जानने के लिए नीचे का बटन दबाइए।",
-  settlement_delay: "आपके settlement की जानकारी है। जानने के लिए नीचे का बटन दबाइए।",
-};
-const DEFAULT_NUDGE = "Paytm की तरफ़ से एक जानकारी है। जानने के लिए नीचे का बटन दबाइए।";
-const HEADS_UP = "आपकी payments के बारे में एक ज़रूरी जानकारी है। जानने के लिए नीचे का बटन दबाइए।";
-const nudgeFor = (b: Brief) => (b.approachId === "fee_threshold_headsup" ? HEADS_UP : NUDGES[b.problem] ?? DEFAULT_NUDGE);
+// Spoken aloud in a shop, maybe in front of customers: it claims nothing and reveals nothing.
+const NUDGE = "Paytm से आपके लिए एक जानकारी है। सुनना चाहें तो बटन दबाइए।";
+
+const HELLO = /^(नमस्ते|नमस्कार|प्रणाम|हेलो|हैलो|हाय|namaste|namaskar|hello|hi|hey)( जी| ji| ji\.)?[\s.!।?]*$/i;
 
 const IDLE_MS = 5 * 60_000;
 const TalkText = z.object({ text: z.string().trim().min(1) });
@@ -87,9 +80,8 @@ export async function buildApp(d: AppDeps) {
       const event = JSON.parse(value) as { merchantId: string };
       const row = await briefRow(event.merchantId);
       if (!row) return;
-      const nudge = nudgeFor(row.brief);
-      const lines = row.brief.channel === "soundbox" ? [say(ANNOUNCEMENT), say(nudge)] : [];
-      await d.gateway.deliver({ brief: row.brief, lines, card: nudge });
+      const lines = row.brief.channel === "soundbox" ? [say(ANNOUNCEMENT), say(NUDGE)] : [];
+      await d.gateway.deliver({ brief: row.brief, lines, card: NUDGE });
     },
   });
 
@@ -131,6 +123,7 @@ export async function buildApp(d: AppDeps) {
   });
   app.get("/api/console", { preHandler: serviceAuth }, () => consoleView(sql, core));
   app.get("/api/decisions", { preHandler: serviceAuth }, () => decisionsView(sql));
+  app.get<{ Querystring: { q?: string } }>("/api/shops", { preHandler: serviceAuth }, (req) => shopsView(sql, req.query.q ?? ""));
   app.get<{ Params: { id: string } }>("/api/shop/:id", { preHandler: serviceAuth }, async (req, reply) => (await shopView(sql, core, req.params.id)) ?? reply.code(404).send({ error: "No such shop" }));
   app.get<{ Params: { id: string } }>("/api/merchant/:id", { preHandler: merchantAuth }, async (req, reply) => {
     if (!(await sql.get("SELECT 1 AS ok FROM merchants WHERE id = ?", [req.params.id]))) return reply.code(404).send({ error: "No such shop" });
@@ -183,7 +176,9 @@ export async function buildApp(d: AppDeps) {
       if (!(await sql.get("SELECT 1 AS ok FROM merchants WHERE id = ?", [id]))) return reply.code(404).send({ error: "No such shop" });
       const row = await briefRow(id);
       const open = row && (row.brief.channel === "human_callback" || !(await sql.get("SELECT 1 AS ok FROM outcomes WHERE brief_id = ?", [row.brief.briefId])));
-      const planned = open && row.brief.channel !== "salesperson_visit";
+      // Rishta only brings up its own topic if it actually reached out. Otherwise the shop speaks first and the agent answers that.
+      const reachedOut = row && (row.brief.channel === "human_callback" || !!(await sql.get("SELECT 1 AS ok FROM outreach WHERE brief_id = ?", [row.brief.briefId])));
+      const planned = open && reachedOut && row.brief.channel !== "salesperson_visit";
       const brief = (await pendingFollowUp(sql, id)) ?? (planned ? row.brief : await inboundBrief(sql, core, id));
       conv = await Conversation.start(d, brief, planned ? row.meta.why : "The shop pressed the button itself");
     }
@@ -216,15 +211,25 @@ export async function buildApp(d: AppDeps) {
         const out = await speak(line);
         return local ? { text: out.text, audio: tts.prepare(out.text, language) } : out;
       };
+      const clear = heardClearly(text, language);
+      if (clear) send({ type: "transcript", text });
       if (isNew) send({ type: "say", ...(await voiced(conv.opening(isEnglish(text)))) });
-      if (!heardClearly(text, language)) {
+      if (!clear) {
         await conv.save();
         send({ type: "say", ...(await voiced("जी, मुझे सुनाई नहीं दिया। कृपया फिर से बोलिए।")) });
         send({ type: "end" });
         reply.raw.end();
         return;
       }
-      send({ type: "transcript", text });
+
+      if (isNew && conv.brief.channel === "inbound" && HELLO.test(text.trim())) {
+        send({ type: "say", ...(await voiced(conv.askHowToHelp(text))) });
+        await conv.save();
+        await ui({ type: "changed", merchantId: id });
+        send({ type: "end" });
+        reply.raw.end();
+        return;
+      }
 
       let spoke = false;
       let first = 0;
@@ -243,6 +248,7 @@ export async function buildApp(d: AppDeps) {
       }
       await queue;
       clearTimeout(filler);
+      if (!spoke && !conv.ended) send({ type: "say", ...(await voiced(conv.askHowToHelp())) });
       metrics.firstReply.observe(first);
       metrics.turns.inc({ result: "ok" });
       app.log.info({ merchantId: id, sttMs: Math.round(sttMs), firstMs: Math.round(first), totalMs: Math.round(performance.now() - started) }, "turn");
@@ -342,7 +348,7 @@ export async function buildApp(d: AppDeps) {
 
   async function prewarm() {
     const firstNames = await sql.all<{ first_name: string }>("SELECT first_name FROM merchants WHERE is_demo = 1");
-    await tts.prewarm([ANNOUNCEMENT, ...FILLERS, DEFAULT_NUDGE, HEADS_UP, ...Object.values(NUDGES), ...firstNames.map((m) => openingLine(m.first_name))]);
+    await tts.prewarm([ANNOUNCEMENT, ...FILLERS, NUDGE, ...firstNames.map((m) => openingLine(m.first_name))]);
   }
 
   // Any server can close abandoned conversations; finish() runs only once.
