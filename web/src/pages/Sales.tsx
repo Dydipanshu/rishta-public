@@ -1,5 +1,5 @@
-import { RoleTabs } from "../ui";
 import { useCallback, useEffect, useState } from "react";
+import { Empty, RoleTabs, Skeleton } from "../ui";
 import { useEvents } from "../hooks/useEvents";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -21,7 +21,7 @@ function Job({ job, kind, n, open, toggle, onDone }: { job: any; kind: Kind; n: 
   };
   const [label, tone] = KIND[kind];
   return (
-    <li className={`card mx-3 mb-2 overflow-hidden ${job.closed ? "opacity-60" : ""}`}>
+    <li className={`card mb-2 overflow-hidden ${job.closed ? "opacity-60" : ""}`}>
       <button onClick={toggle} aria-expanded={open} className="flex w-full items-center gap-3 px-3 py-3 text-left">
         <span className="num grid h-8 w-8 shrink-0 place-items-center rounded-full bg-paper font-bold text-ink">{job.closed ? "✓" : n}</span>
         <span className="min-w-0 flex-1">
@@ -52,7 +52,8 @@ function Job({ job, kind, n, open, toggle, onDone }: { job: any; kind: Kind; n: 
 
 export default function Sales() {
   const [v, setV] = useState<any>(null);
-  const [open, setOpen] = useState<string | null>(null);
+  // The top job starts open, so the brief is the first thing seen.
+  const [chosen, setChosen] = useState<string | null | undefined>(undefined);
   const load = useCallback(() => void fetch("/api/console").then((r) => r.json()).then(setV), []);
   useEffect(load, [load]);
   useEvents((e) => { if (e.type === "changed") load(); });
@@ -63,20 +64,31 @@ export default function Sales() {
   ];
   const todo = jobs.filter((j) => !j.job.closed);
   const list = [...todo, ...jobs.filter((j) => j.job.closed)];
+  const keyOf = ({ job, kind }: (typeof jobs)[number]) => `${kind}${job.merchantId ?? job.briefId}`;
+  const open = chosen === undefined ? (list[0] ? keyOf(list[0]) : null) : chosen;
+  const count = (k: Kind) => todo.filter((j) => j.kind === k).length;
   return (
-    <div className="mx-auto h-dvh max-w-md overflow-y-auto bg-paper pb-4">
-      <div className="px-2 py-1.5"><RoleTabs on="sales" /></div>
-      <header className="bg-gradient-to-br from-[#012a72] to-[#0369a1] px-4 py-4 text-white">
-        <div className="text-sm opacity-80">Paytm sales app</div>
-        <h1 className="text-2xl font-bold">{v ? `${todo.length} shops to talk to today` : " "}</h1>
-        {v && <p className="mt-0.5 text-sm text-white/75">Most urgent first. Rishta is handling the other {v.plan.handledByRishta} itself.</p>}
+    <div className="h-dvh overflow-y-auto bg-paper">
+      <div className="bg-white px-2 py-1.5"><div className="mx-auto flex max-w-2xl items-center gap-2"><a href="/" aria-label="Home" className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-paytm to-paytm-deep font-extrabold text-white">र</a><div className="min-w-0 flex-1"><RoleTabs on="sales" /></div></div></div>
+      <header className="bg-gradient-to-br from-[#012a72] to-[#0369a1] text-white">
+        <div className="mx-auto max-w-2xl px-4 py-5">
+          <div className="text-sm opacity-80">Paytm sales app</div>
+          <h1 className="min-h-9 text-[1.7rem] font-extrabold leading-tight">{v ? `${todo.length} shops to talk to today` : " "}</h1>
+          {v && <p className="mt-0.5 text-white/80">Most urgent first. Rishta is handling the other {v.plan.handledByRishta} itself, and wrote a brief for each of these.</p>}
+          {v && <div className="mt-3 grid grid-cols-3 gap-2 text-center">{([["call", "Calls"], ["lead", "Loan leads"], ["visit", "Visits"]] as const).map(([k, l]) => <div key={k} className="rounded-xl bg-white/12 py-1.5"><div className="num text-xl font-bold leading-tight">{count(k)}</div><div className="text-xs text-white/75">{l}</div></div>)}</div>}
+        </div>
       </header>
-      <ol className="pt-3">
-        {list.map(({ job, kind }, i) => {
-          const key = `${kind}${job.merchantId ?? job.briefId}`;
-          return <Job key={key} job={job} kind={kind} n={i + 1} open={open === key} toggle={() => setOpen(open === key ? null : key)} onDone={load} />;
-        })}
-      </ol>
+      <div className="mx-auto max-w-2xl px-3 pb-6 pt-3">
+        {!v && <div className="space-y-2"><Skeleton h={72} /><Skeleton h={72} /><Skeleton h={72} /></div>}
+        {v && list.length === 0 && <div className="card"><Empty title="Nothing for a person today">Rishta is handling every shop it reached.</Empty></div>}
+        <ol>
+          {list.map((j, i) => {
+            const key = keyOf(j);
+            return <Job key={key} job={j.job} kind={j.kind} n={i + 1} open={open === key} toggle={() => setChosen(open === key ? null : key)} onDone={load} />;
+          })}
+        </ol>
+        <p className="mt-3 text-center text-xs text-muted">Simulated shops. Each result you record teaches Rishta, just like its own conversations.</p>
+      </div>
     </div>
   );
 }

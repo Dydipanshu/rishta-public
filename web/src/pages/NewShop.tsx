@@ -63,11 +63,15 @@ export default function NewShop() {
 
   return (
     <div className="h-dvh overflow-y-auto bg-paper text-ink">
-      <div className="mx-auto max-w-xl px-4 pb-10 pt-3">
-        <a href="/" className="text-sm font-semibold text-paytm-deep">← Back</a>
-        <h1 className="mt-3 text-3xl font-extrabold leading-tight">Make your own shop</h1>
-        <p className="mt-1 text-muted">We'll build 6 months of pretend sales for it. Then Rishta decides what to do, just as it does for every other shop.</p>
-        <form onSubmit={(e) => void create(e)} className="mt-6 space-y-6">
+      <header className="bg-gradient-to-br from-[#012a72] to-[#0369a1] text-white">
+        <div className="mx-auto max-w-xl px-4 pb-6 pt-3">
+          <a href="/" className="text-sm font-semibold text-white/85">← Back</a>
+          <h1 className="mt-3 text-3xl font-extrabold leading-tight">Make your own shop</h1>
+          <p className="mt-1 text-white/80">We'll build 6 months of pretend sales for it. Then Rishta decides what to do, just as it does for every other shop.</p>
+        </div>
+      </header>
+      <div className="mx-auto max-w-xl px-4 pb-10">
+        <form onSubmit={(e) => void create(e)} className="mt-5 space-y-6">
           <Field label="Shop name" value={name} set={setName} hint="Asha Kirana Store" />
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Your first name" value={owner} set={setOwner} hint="Asha" />

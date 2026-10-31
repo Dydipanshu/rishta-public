@@ -502,7 +502,7 @@ function Today({ v, pick, open }: { v: View; pick: (g: Group) => void; open: (id
       </div>
       <div className="contents lg:grid lg:items-start lg:gap-4 lg:grid-cols-[minmax(0,1.7fr)_minmax(280px,1fr)]">
         <Card title="Every shop, tonight's decision" className="order-1 lg:order-none">
-          <div className="mx-auto lg:max-w-[calc((100dvh-420px)*2)]"><ShopMap plan={p} active={hover && hover !== "idle" ? hover : null} onHover={setHover} onPick={pick} /></div>
+          <div className="mx-auto lg:max-w-[calc((100dvh-490px)*2)]"><ShopMap plan={p} active={hover && hover !== "idle" ? hover : null} onHover={setHover} onPick={pick} /></div>
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
             {(Object.keys(GROUPS) as Group[]).map((g) => <button key={g} onClick={() => pick(g)} onMouseEnter={() => setHover(g)} onMouseLeave={() => setHover(null)} className="flex items-center gap-1.5 text-sm hover:text-paytm-deep"><span className="h-2.5 w-2.5 rounded-full" style={{ background: GROUPS[g].color }} />{GROUPS[g].label} <b className="num">{counts[g]}</b></button>)}
           </div>
@@ -733,6 +733,7 @@ export default function Flow() {
   const params = new URLSearchParams(query);
   const shop = params.get("shop") ?? "M001";
   const tab = TAB[params.get("tab") ?? "talk"] ?? "handled";
+  const narrow = useNarrow(767);
   const [list, setList] = useState<any>(null);
   const [item, setItem] = useState<any>(undefined);
 
@@ -879,13 +880,15 @@ export default function Flow() {
           <p role="status" className="hidden min-w-0 flex-1 text-[0.95rem] text-ink md:block">{error ? <span className="text-callback">{error}</span> : status}</p>
           {next
             ? <button onClick={next.run} disabled={next.off} className={`${next.off ? "btn-off" : "btn-primary"} min-w-0 flex-1 justify-center md:flex-none`}><span className="truncate">{next.label}</span><Icon name="arrow" size={16} /></button>
-            : <div className="grid min-w-0 flex-1 grid-cols-2 gap-2 md:flex md:flex-none md:gap-3">
-              <button onClick={() => open("M002")} className="btn-ghost justify-center">Sharma Medicos</button>
-              <button onClick={() => open("M007")} className="btn-ghost justify-center">Verma: missed EMIs</button>
-              <button onClick={() => open("M008")} className="btn-ghost justify-center">Anand: loan</button>
-              <a href="/" className="btn-primary justify-center md:hidden">Be any shop</a>
-              <button onClick={() => void startOver()} className="btn-primary hidden md:inline-flex">Start over</button>
-            </div>}
+            : narrow ? <>
+              <button onClick={() => open("M002")} className="btn-ghost min-w-0 flex-1 justify-center">Sharma Medicos</button>
+              <a href="/" className="btn-primary min-w-0 flex-1 justify-center">Be any shop</a>
+            </> : <>
+              <button onClick={() => open("M002")} className="btn-ghost">Sharma Medicos</button>
+              <button onClick={() => open("M007")} className="btn-ghost">Verma: missed EMIs</button>
+              <button onClick={() => open("M008")} className="btn-ghost">Anand: loan</button>
+              <button onClick={() => void startOver()} className="btn-primary">Start over</button>
+            </>}
         </footer>
       </div>
     </div>

@@ -89,3 +89,6 @@ button { cursor: pointer; }
 
 .noscroll { scrollbar-width: none; }
 .noscroll::-webkit-scrollbar { display: none; }
+
+/* The home page conversation plays itself once. Delay comes from --at. */
+.say { animation: rise 320ms ease-out both; animation-delay: var(--at, 0ms); }
