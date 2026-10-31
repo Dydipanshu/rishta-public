@@ -192,7 +192,7 @@ function Proof({ v }: { v: View }) {
   const isLoan = problem === "loan_opportunity";
   return (
     <div className="space-y-4">
-      <PageHead eyebrow="Measured against a no-contact group" title={lift?.proven ? `"${lift.approach}" ${isLoan ? "gets" : "keeps"} ${low} to ${high} more ${isLoan ? "good loans" : "shops"} in every 100 than doing nothing.` : lift ? `Rishta prefers "${lift.approach}", but can't yet prove it beats doing nothing.` : "No results yet."} sub={lift && `Best estimate ${Math.round(lift.points * 100)} more per 100, ±${Math.round(lift.margin * 100)}, against ${pb.holdout.n} shops nobody contacted. Simulated test data with known answers.`} />
+      <PageHead eyebrow="Measured against a no-contact group" title={lift?.proven ? `"${lift.approach}" ${isLoan ? "gets" : "keeps"} ${low} to ${high} more ${isLoan ? "good loans" : "shops"} in every 100 than doing nothing.` : lift ? `Rishta prefers "${lift.approach}", but can't yet prove it beats doing nothing.` : "No results yet."} />
       <Ledger rows={v.ledger} />
       <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Problem">
         {v.playbook.map((p: any) => <button key={p.problem} role="tab" aria-selected={p.problem === problem} onClick={() => setProblem(p.problem)} className={`seg ${p.problem === problem ? "seg-on" : ""}`}>{p.label}</button>)}
