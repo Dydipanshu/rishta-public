@@ -69,6 +69,7 @@ const ACTIONS: Record<string, string> = {
 
 const pct = (n: number | null) => (n === null ? "–" : `${Math.round(n * 100)}%`);
 const num = (n: number) => n.toLocaleString("en-IN");
+const rupees = (n: number) => `${n < 0 ? "-" : ""}₹${num(Math.abs(n))}`;
 const words = (key: string) => key.replace(/(\d+)/g, " $1").replace(/([A-Z])/g, " $1").replace(/Pct/, "%").replace(/ Inr/, "").replace(/^./, (c) => c.toUpperCase());
 // Segment codes mean nothing to a judge.
 const plainReason = (r: string) => r.replace(/Learned \(simulated\): in \S+ shops, (\d+%) of contacted shops stayed vs (\d+%) of holdout/, "Contact backfires for fruit and vegetable shops in tier 2 cities: $1 stayed when contacted, $2 when left alone (simulated)");
@@ -174,14 +175,14 @@ function Ledger({ rows }: { rows: any[] }) {
         {rows.map((r) => (
           <li key={r.problem} className="border-b border-line pb-3 last:border-0 last:pb-0">
             <div className="flex items-baseline justify-between gap-2"><span className="font-semibold">{r.label}</span>{r.proven ? <span className="num text-lg font-bold text-kept">₹{num(r.best)}</span> : <Pill>Not proven yet</Pill>}</div>
-            <div className="num text-sm text-muted">{r.extraKeptPer100} extra shops kept · each worth ₹{num(r.shopWorthYear)} a year · cost ₹{num(r.costPer100)}{r.proven ? ` · range ₹${num(r.low)} to ₹${num(r.high)}` : ""}</div>
+            <div className="num text-sm text-muted">{r.extraKeptPer100} extra shops kept · each worth ₹{num(r.shopWorthYear)} a year · cost ₹{num(r.costPer100)}{r.proven ? ` · range ${rupees(r.low)} to ${rupees(r.high)}` : ""}</div>
           </li>
         ))}
       </ul>
       <div className="hidden sm:block">
         <table className="w-full text-left text-sm">
           <thead className="text-muted"><tr><th className="pb-2 font-medium">Problem</th><th className="pb-2 text-right font-medium">Extra shops kept</th><th className="pb-2 text-right font-medium">One shop's yearly value</th><th className="pb-2 text-right font-medium">Cost</th><th className="pb-2 text-right font-medium">Net to Paytm</th></tr></thead>
-          <tbody className="num">{rows.map((r) => <tr key={r.problem} className="border-t border-line"><td className="py-2 font-semibold">{r.label}</td><td className="text-right">{r.extraKeptPer100}</td><td className="text-right">₹{num(r.shopWorthYear)}</td><td className="text-right">₹{num(r.costPer100)}</td><td className="text-right">{r.proven ? <><span className="font-semibold text-kept">₹{num(r.best)}</span><div className="text-xs text-muted">₹{num(r.low)} to ₹{num(r.high)}</div></> : <Pill>Not proven yet</Pill>}</td></tr>)}</tbody>
+          <tbody className="num">{rows.map((r) => <tr key={r.problem} className="border-t border-line"><td className="py-2 font-semibold">{r.label}</td><td className="text-right">{r.extraKeptPer100}</td><td className="text-right">₹{num(r.shopWorthYear)}</td><td className="text-right">₹{num(r.costPer100)}</td><td className="text-right">{r.proven ? <><span className="font-semibold text-kept">₹{num(r.best)}</span><div className="text-xs text-muted">{rupees(r.low)} to {rupees(r.high)}</div></> : <Pill>Not proven yet</Pill>}</td></tr>)}</tbody>
         </table>
       </div>
       <p className="mt-2 text-xs text-muted">Value = rent + estimated payment margin + estimated loan revenue. The same 100 shops by salesperson visit would cost about ₹9,500. Every assumption is listed in config/value.ts.</p>
@@ -372,7 +373,7 @@ function Team({ v, selected }: { v: View; selected: string }) {
   return (
     <div className="space-y-4">
       <PageHead eyebrow="Rishta and the people around it" title={`Rishta takes ${num(p.handledByRishta)} of the ${num(reach)} shops it reaches today. People get the ${num(p.salespersonVisits + p.humanCallbacks)} that need a person.`} />
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5 max-lg:[&>:last-child]:col-span-2">
         <Stat label="Solved, confirmed by the shop" value={d.resolvedWithoutHuman} hint={`${d.conversations} conversations today`} tone="good" />
         <Stat label="Fixes waiting to be checked" value={d.promises.waiting} hint={`${d.promises.kept} confirmed, ${d.promises.failed} failed`} />
         <Stat label="Loan requests, lender decides" value={v.loans.sold} hint={`₹${num(v.loans.soldInr)}, plus ${v.leads.length} warm leads`} tone="brand" />
@@ -430,7 +431,7 @@ function Guardrails({ v }: { v: View }) {
   return (
     <div className="space-y-4">
       <PageHead eyebrow="Enforced by code, not by asking the AI nicely" title="What Rishta can never do." sub="Each rule below runs outside the model, so a clever prompt can't talk its way past it." />
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 max-md:[&>:last-child]:col-span-2">
         <Stat label="Sentences blocked before speaking" value={g.blocked} />
         <Stat label="Fraud reports escalated" value={g.fraud} />
         <Stat label="Actions in the audit log" value={num(g.logged)} hint="Append-only" />
@@ -491,22 +492,22 @@ function Today({ v, pick, open }: { v: View; pick: (g: Group) => void; open: (id
   const counts: Record<Group, number> = { handled: p.handledByRishta, visit: p.salespersonVisits, callback: p.humanCallbacks, left: p.leftAlone };
   const proven = v.ledger.filter((l: any) => l.proven);
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       <PageHead eyebrow="Last night's run, no one asked" title={`${num(p.checked)} shops checked. ${p.needAttention} needed a decision.`} />
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="order-2 grid grid-cols-2 gap-3 lg:order-none lg:grid-cols-4">
         <Stat label="Yearly value in today's plan" value={`₹${num(Math.round(v.atStake / 100000 * 10) / 10)} L`} hint="Shops Rishta will reach (estimate)" tone="brand" />
         <Stat label="Rishta talks to" value={counts.handled} hint="Soundbox or app" />
         <Stat label="Left alone on purpose" value={counts.left} hint="Rules, or contact doesn't pay" />
         <Stat label="Needs a person" value={counts.visit + counts.callback} hint={`${counts.visit} visits, ${counts.callback} calls`} />
       </div>
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.7fr)_minmax(280px,1fr)]">
-        <Card title="Every shop, tonight's decision">
+      <div className="contents lg:grid lg:items-start lg:gap-4 lg:grid-cols-[minmax(0,1.7fr)_minmax(280px,1fr)]">
+        <Card title="Every shop, tonight's decision" className="order-1 lg:order-none">
           <div className="mx-auto lg:max-w-[calc((100dvh-420px)*2)]"><ShopMap plan={p} active={hover && hover !== "idle" ? hover : null} onHover={setHover} onPick={pick} /></div>
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
             {(Object.keys(GROUPS) as Group[]).map((g) => <button key={g} onClick={() => pick(g)} onMouseEnter={() => setHover(g)} onMouseLeave={() => setHover(null)} className="flex items-center gap-1.5 text-sm hover:text-paytm-deep"><span className="h-2.5 w-2.5 rounded-full" style={{ background: GROUPS[g].color }} />{GROUPS[g].label} <b className="num">{counts[g]}</b></button>)}
           </div>
         </Card>
-        <div className="space-y-4">
+        <div className="order-3 space-y-4 lg:order-none">
           <Card title="Live activity" action={<span className="flex items-center gap-1.5 text-xs text-muted"><span className="live-dot" />Live</span>}>
             {v.activity.length === 0 ? <Empty title="Quiet so far">Conversations appear here the moment they finish.</Empty> : v.activity.map((a: any, i: number) => <button key={i} onClick={() => open(a.merchantId)} className="rise flex w-full items-start justify-between gap-2 border-b border-line py-1.5 text-left first:pt-0 last:border-0"><span className="min-w-0"><span className="block truncate font-semibold">{a.name}</span><span className="line-clamp-1 text-sm text-muted">{a.summary}</span></span><Pill tone={TONE[OUTCOME[a.outcome]?.[1] ?? "plain"]}>{OUTCOME[a.outcome]?.[0] ?? a.outcome}</Pill></button>)}
           </Card>
@@ -571,7 +572,7 @@ function Shop({ item, v }: { item: any; v: View }) {
   const worth = meta.valueYear;
   return (
     <div>
-      <PageHead eyebrow={`${meta.city} · ${meta.reasonLabel}`} title={meta.name} sub={meta.why} action={worth && <div className="text-right"><div className="num text-xl font-bold text-paytm-deep">₹{num(worth.total)}</div><div className="text-xs text-muted">a year to Paytm (estimate)</div></div>} />
+      <PageHead eyebrow={`${meta.city} · ${meta.reasonLabel}`} title={meta.name} sub={meta.why} action={worth && <div className="sm:text-right"><div className="num text-xl font-bold text-paytm-deep">₹{num(worth.total)}</div><div className="text-xs text-muted">a year to Paytm (estimate)</div></div>} />
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
         <div className="space-y-4">
           <Card title="What Rishta decided">
@@ -650,14 +651,14 @@ function Talk({ shop, id }: { shop: any; id: string }) {
     const checked = shop.live?.numbersChecked ?? 0;
     return (
       <div className="flex h-full flex-col">
-        <div className="min-h-0 flex-1"><MerchantPhone shopId={id} tips={tips} onTip bare /></div>
+        <div className="min-h-0 flex-1"><MerchantPhone shopId={id} tips={tips} onTip bare suggest={tips.slice(0, 1)} /></div>
         <div className="flex items-center gap-2 border-t border-line bg-white px-3 py-1.5 text-sm"><span className="live-dot shrink-0" /><span className="min-w-0 truncate text-muted">{did.length || checked ? [checked ? `${checked} numbers checked` : "", did.at(-1) ?? ""].filter(Boolean).join(" · ") : "Rishta is watching this conversation"}</span></div>
       </div>
     );
   }
   return (
     <div className="flex h-full items-center justify-center gap-10">
-      <MerchantPhone shopId={id} tips={tips} onTip />
+      <MerchantPhone shopId={id} tips={tips} onTip suggest={tips.slice(0, 1)} />
       <div className="hidden lg:block"><LivePanel shop={shop} /></div>
     </div>
   );
@@ -702,7 +703,7 @@ const DO: Record<string, string> = {
   "/loans": "From a nightly check to a loan the lender can decide on.",
   "/why": "Conversations tell the sales team why shops really leave, including what you just said.",
   "/team": "That's the loop. Last: what stops it going wrong.",
-  "/guardrails": "That's the whole product. Try another shop, or open it on your phone.",
+  "/guardrails": "That's the whole product. Try another shop, or be any shop yourself.",
 };
 
 function Search({ list, open }: { list: any; open: (id: string) => void }) {
@@ -878,12 +879,13 @@ export default function Flow() {
           <p role="status" className="hidden min-w-0 flex-1 text-[0.95rem] text-ink md:block">{error ? <span className="text-callback">{error}</span> : status}</p>
           {next
             ? <button onClick={next.run} disabled={next.off} className={`${next.off ? "btn-off" : "btn-primary"} min-w-0 flex-1 justify-center md:flex-none`}><span className="truncate">{next.label}</span><Icon name="arrow" size={16} /></button>
-            : <>
-              <button onClick={() => open("M002")} className="btn-ghost">Sharma Medicos</button>
-              <button onClick={() => open("M007")} className="btn-ghost">Verma: missed EMIs</button>
-              <button onClick={() => open("M008")} className="btn-ghost">Anand: loan</button>
-              <button onClick={() => void startOver()} className="btn-primary">Start over</button>
-            </>}
+            : <div className="grid min-w-0 flex-1 grid-cols-2 gap-2 md:flex md:flex-none md:gap-3">
+              <button onClick={() => open("M002")} className="btn-ghost justify-center">Sharma Medicos</button>
+              <button onClick={() => open("M007")} className="btn-ghost justify-center">Verma: missed EMIs</button>
+              <button onClick={() => open("M008")} className="btn-ghost justify-center">Anand: loan</button>
+              <a href="/" className="btn-primary justify-center md:hidden">Be any shop</a>
+              <button onClick={() => void startOver()} className="btn-primary hidden md:inline-flex">Start over</button>
+            </div>}
         </footer>
       </div>
     </div>
