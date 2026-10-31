@@ -16,6 +16,8 @@ export const heardClearly = (text: string, language = HINDI) => {
     && !new RegExp(`[^${scripts}\\p{N}\\p{P}\\p{S}\\p{Z}\\p{M}]`, "u").test(text);
 };
 
+const MIN_CLIP_BYTES = 1500;
+
 export function makeStt(s: Settings) {
   const sarvam = new SarvamAIClient({ apiSubscriptionKey: s.SARVAM_API_KEY });
   const transcribe = (audio: Buffer, contentType: string, language: "unknown" | "hi-IN") => withTimeout(sarvam.speechToText.transcribe({
@@ -27,7 +29,13 @@ export function makeStt(s: Settings) {
   }), 10_000, "Speech-to-text");
 
   return async (audio: Buffer, contentType: string, current: string) => {
-    const res = await transcribe(audio, contentType, "unknown");
+    // An accidental double tap sends a clip too short to read. That means "didn't hear", not a failed call.
+    if (audio.length < MIN_CLIP_BYTES) return { text: "", language: current };
+    const res = await transcribe(audio, contentType, "unknown").catch((err: { statusCode?: number }) => {
+      if (err.statusCode === 400) return null;
+      throw err;
+    });
+    if (!res) return { text: "", language: current };
     const detected = res.language_code ?? current;
     if (!res.transcript.trim()) return { text: "", language: current };
     if (trustDetection(res.transcript, detected, res.language_probability, current)) {
