@@ -108,11 +108,11 @@ await next("Why shops leave");
 await next("The team");
 check((await body()).length > 0, "reached the last page");
 
-await next("Try Sharma Medicos");
+await page.goto(`${BASE}/demo/shop?shop=M002`);
 await next(/^Send the nudge/);
 await page.getByText("Tap to say this").first().waitFor({ timeout: 30_000 });
 await page.waitForTimeout(9000);
-for (const line of ["मेरा Soundbox का battery बार बार खत्म हो जाता है", "हाँ replacement भेज दीजिए"]) {
+for (const line of ["मेरा Soundbox का battery बार बार खत्म हो जाता है", "हाँ replacement भेज दीजिए", "नहीं बस, धन्यवाद"]) {
   await hold(await clip(line));
   await page.waitForTimeout(14_000);
 }
@@ -121,7 +121,7 @@ await next("See what happened");
 check((await body()).includes("Sharma"), "a second shop works end to end");
 await page.screenshot({ path: `${SHOTS}/sharma.png` });
 
-for (const [path, text] of [["/voices", "Pick Rishta"], ["/sales", "Your list for today"], ["/phone/M001", "Ramesh General Store"]] as const) {
+for (const [path, text] of [["/voices", "Pick Rishta"], ["/sales", "Paytm sales app"], ["/phone/M001", "Ramesh General Store"]] as const) {
   await page.goto(`${BASE}${path}`);
   check(await page.getByText(text).first().waitFor({ timeout: 5000 }).then(() => true, () => false), `${path} opens`);
 }
