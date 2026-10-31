@@ -29,6 +29,8 @@ const LOAN_YES = ["जी, वे आपको call करेंगे। धन
 const LOAN_NO = ["जी, कोई बात नहीं। धन्यवाद, आपका दिन शुभ हो।", "No problem. Thank you, have a good day."] as const;
 const FALLBACK = "जी, यह पक्का आँकड़ा अभी मेरे पास नहीं है। और कुछ बताऊँ?";
 const NO_SPLITTING = "जी, fee बचाने के तरीकों पर मैं सलाह नहीं दे सकती। कोई और सवाल हो तो बताइए।";
+// Nobody ends a sentence with a lone "जी" or "ji". The model does when told to be respectful, so code removes it.
+export const tidy = (chunk: string) => chunk.replace(/^\s*(जी|ji)\s*;\s*(?=\S)/i, "").replace(/\s*,\s*(जी|ji)\s*([।.?!])\s*$/i, "$2").replace(/^\s*(जी|ji)\s*[;,।.]?\s*$/i, "").trim();
 const NO_PROMISE = "जी, इसकी पक्की तारीख या वादा मैं नहीं दे सकती। Team आपसे खुद संपर्क करेगी।";
 const CANNOT_HELP = "जी, इसमें मैं मदद नहीं कर सकती। Paytm से जुड़ा कोई और सवाल हो तो बताइए।";
 const FAILOVER = "माफ़ कीजिए, अभी दिक्कत आ रही है। Paytm से एक व्यक्ति आपको call करेगा।";
@@ -324,7 +326,9 @@ export class Conversation {
         buffer += event.delta;
         const { chunks, rest } = takeChunks(buffer);
         buffer = rest;
-        for (const chunk of chunks) {
+        for (const raw of chunks) {
+          const chunk = tidy(raw);
+          if (!chunk) continue;
           const check = await this.pass(chunk, said);
           if (!check.ok) {
             failure = check;
@@ -336,7 +340,9 @@ export class Conversation {
       }
 
       if (!failure && buffer.trim()) {
-        for (const chunk of takeChunks(buffer, true).chunks) {
+        for (const raw of takeChunks(buffer, true).chunks) {
+          const chunk = tidy(raw);
+          if (!chunk) continue;
           const check = await this.pass(chunk, said);
           if (!check.ok) {
             failure = check;

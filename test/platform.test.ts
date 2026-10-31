@@ -3,7 +3,7 @@ import { rmSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { benchCore } from "../src/adapters/benchCore.js";
 import { memoryBus } from "../src/adapters/memoryBus.js";
-import { Conversation } from "../src/agent/brain.js";
+import { Conversation, tidy } from "../src/agent/brain.js";
 import type { LLMAdapter, LLMEvent } from "../src/agent/llmAdapter.js";
 import { enqueue, startRelay } from "../src/data/outbox.js";
 import { resetLive } from "../src/data/reset.js";
@@ -77,6 +77,13 @@ describe("platform", () => {
       expect(replies[0]).not.toContain("बहुत अच्छा");
       expect(conv.ended).toBe(true);
       expect((await conv.finish())!.outcome).toBe("ticket_raised");
+    });
+
+    it("never ends a sentence on a lone ji", () => {
+      expect(tidy("बिक्री कम रही है, जी।")).toBe("बिक्री कम रही है।");
+      expect(tidy("जी।")).toBe("");
+      expect(tidy("जी; उस दिन बिक्री अच्छी थी।")).toBe("उस दिन बिक्री अच्छी थी।");
+      expect(tidy("जी, fee ₹38 है।")).toBe("जी, fee ₹38 है।");
     });
 
     it("says it is an AI, in plain words, when asked", async () => {
