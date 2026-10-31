@@ -1,5 +1,6 @@
 import qrcode from "qrcode-generator";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAppHeight } from "../hooks/useAppHeight";
 import { useEvents } from "../hooks/useEvents";
 import { Card, Empty, Icon, PageHead, Pill, RoleTabs, SimTag, Skeleton, Stat, useNarrow, type Tone } from "../ui";
 import MerchantPhone from "./MerchantPhone";
@@ -652,7 +653,7 @@ function Talk({ shop, id }: { shop: any; id: string }) {
     return (
       <div className="flex h-full flex-col">
         <div className="min-h-0 flex-1"><MerchantPhone shopId={id} tips={tips} onTip bare suggest={tips.slice(0, 1)} /></div>
-        <div className="flex items-center gap-2 border-t border-line bg-white px-3 py-1.5 text-sm"><span className="live-dot shrink-0" /><span className="min-w-0 truncate text-muted">{did.length || checked ? [checked ? `${checked} numbers checked` : "", did.at(-1) ?? ""].filter(Boolean).join(" · ") : "Rishta is watching this conversation"}</span></div>
+        <div className="no-keyboard flex items-center gap-2 border-t border-line bg-white px-3 py-1.5 text-sm"><span className="live-dot shrink-0" /><span className="min-w-0 truncate text-muted">{did.length || checked ? [checked ? `${checked} numbers checked` : "", did.at(-1) ?? ""].filter(Boolean).join(" · ") : "Rishta is watching this conversation"}</span></div>
       </div>
     );
   }
@@ -734,6 +735,7 @@ export default function Flow() {
   const shop = params.get("shop") ?? "M001";
   const tab = TAB[params.get("tab") ?? "talk"] ?? "handled";
   const narrow = useNarrow(767);
+  useAppHeight(narrow);
   const [list, setList] = useState<any>(null);
   const [item, setItem] = useState<any>(undefined);
 
@@ -823,7 +825,7 @@ export default function Flow() {
     : null;
 
   return (
-    <div className="flex h-dvh">
+    <div className={narrow ? "app-h safe-top flex bg-white" : "flex h-dvh"}>
       <nav aria-label="Main" className="hidden w-56 shrink-0 flex-col border-r border-line bg-white md:flex">
         <button onClick={() => go("/")} className="flex items-center gap-2 px-4 py-4 text-lg font-bold text-ink"><Logo />Rishta</button>
         <ul className="flex-1 space-y-0.5 px-2">
@@ -853,7 +855,7 @@ export default function Flow() {
           <Search list={list} open={open} />
         </header>
         <div className="h-1 bg-idle md:hidden" aria-hidden><div className="h-full bg-paytm transition-[width]" style={{ width: `${((index + 1) / STEPS.length) * 100}%` }} /></div>
-        <p className="border-b border-line bg-paytm/10 px-4 py-2 text-[0.95rem] font-medium leading-snug text-navy md:hidden">{error ? <span className="text-callback">{error}</span> : status}</p>
+        <p className="no-keyboard border-b border-line bg-paytm/10 px-4 py-2 text-[0.95rem] font-medium leading-snug text-navy md:hidden">{error ? <span className="text-callback">{error}</span> : status}</p>
         <main key={path} className={`rise min-h-0 flex-1 bg-paper ${path === "/talk" ? "overflow-hidden md:overflow-y-auto md:px-6 md:py-5" : "overflow-y-auto px-4 py-5 md:px-6"}`}>
           <div className="mx-auto h-full max-w-6xl">
             {!v && <div className="grid gap-3 md:grid-cols-4">{[1, 2, 3, 4].map((i) => <Skeleton key={i} />)}<div className="md:col-span-4"><Skeleton h={320} /></div></div>}
@@ -874,7 +876,7 @@ export default function Flow() {
             </>}
           </div>
         </main>
-        <footer className="flex flex-wrap items-center gap-2 border-t border-line bg-white px-4 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:gap-3 md:px-6 md:py-2.5">
+        <footer className="no-keyboard safe-bottom flex flex-wrap items-center gap-2 border-t border-line bg-white px-4 pt-2 md:gap-3 md:px-6 md:py-2.5">
           <button onClick={() => history.back()} aria-label="Back" className="btn-quiet"><Icon name="back" size={16} /></button>
           <ol className="hidden gap-1 md:flex" aria-label="Progress">{STEPS.map(([p, label], i) => <li key={p} aria-current={i === index ? "step" : undefined} title={label} className={`h-1.5 w-6 rounded-full ${i < index ? "bg-paytm-deep" : i === index ? "bg-paytm" : "bg-idle"}`} />)}</ol>
           <p role="status" className="hidden min-w-0 flex-1 text-[0.95rem] text-ink md:block">{error ? <span className="text-callback">{error}</span> : status}</p>

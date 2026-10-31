@@ -31,6 +31,8 @@ input, textarea, select { font-size: max(16px, 1em); }
 .safe-top { padding-top: env(safe-area-inset-top); }
 .safe-bottom { padding-bottom: max(0.5rem, env(safe-area-inset-bottom)); }
 :root[data-keyboard] .safe-bottom { padding-bottom: 0.5rem; }
+/* With the keyboard open, only the conversation matters. */
+:root[data-keyboard] .no-keyboard { display: none; }
 /* Holding the mic must not select text or open the iPhone's long-press menu. */
 .mic-btn { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: none; }
 
@@ -48,10 +50,10 @@ button { cursor: pointer; }
 .card { background: #fff; border: 1px solid var(--color-line); border-radius: 12px; box-shadow: 0 1px 2px rgb(15 23 42 / 0.04); }
 .btn-primary, .btn-ghost, .btn-off { display: inline-flex; align-items: center; gap: 0.4rem; border-radius: 10px; padding: 0.55rem 1rem; font-weight: 600; white-space: nowrap; transition: background 120ms, border-color 120ms, transform 120ms; }
 .btn-primary { background: var(--color-paytm-deep); color: #fff; }
-@media (hover: hover) {
-.btn-primary:hover { background: #075985; }
 .btn-primary:active { transform: translateY(1px); }
 .btn-ghost { background: #fff; border: 1px solid var(--color-line); color: var(--color-ink); }
+@media (hover: hover) {
+.btn-primary:hover { background: #075985; }
 .btn-ghost:hover { border-color: var(--color-paytm-deep); color: var(--color-paytm-deep); }
 .btn-quiet:hover { background: var(--color-paper); color: var(--color-ink); }
 .seg:hover { color: var(--color-ink); }
