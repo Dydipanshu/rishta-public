@@ -1,3 +1,4 @@
+import { loanCase } from "./loans.js";
 import { FIXED_ROUTES, PLAYBOOK, approachById } from "../../config/playbook.js";
 import { MAX_MONTHLY_DISCOUNT_INR } from "../../config/plans.js";
 import { buildFeatures } from "../features/buildFeatures.js";
@@ -29,10 +30,14 @@ const GOALS: Partial<Record<ReasonCode, string>> = {
   support_unresolved: "A person calls back with full context",
   rival_offer: "Salesperson understands the offer and compares plans fairly",
   low_sales_season: "Merchant feels supported through a slow period",
+  loan_overdue: "Loan repayment is back on track, within the lender's rules",
+  loan_opportunity: "Merchant understands the offer and decides freely",
 };
 
+const LOAN_WHY = { loan_overdue: "Loan payments missed; sales need checking before anything else", loan_opportunity: "Sales are growing, no loan yet, and festival stock is coming" };
+
 function actionsFor(problem: ReasonCode): ActionName[] {
-  const always: ActionName[] = ["getMerchantSummary", "raiseTicket", "scheduleHumanCallback", "recordOutcome", "recordOptOut", "sendAppMessage", "requestDeviceReturn"];
+  const always: ActionName[] = ["getMerchantSummary", "raiseTicket", "scheduleHumanCallback", "recordOutcome", "recordOptOut", "sendAppMessage", "requestDeviceReturn", "checkLoan", "proposeLoan", "acceptLoan", "setReducedEmi"];
   if (problem === "fee_confusion") return [...always, "explainFee"];
   if (problem === "device_fault") return [...always, "checkDeviceHealth"];
   if (problem === "rent_too_high") return [...always, "proposePlan", "changePlan"];
@@ -102,11 +107,14 @@ function decide(m: Merchant, ctx: RunContext, seed: number, counts: ShardCounts)
   const f = buildFeatures(m, TODAY);
   if (f.daysSinceLastPayment >= 14) return null;
   counts.active++;
-  const detected = detectProblem(f);
+  const found = detectProblem(f);
+  const loan = loanCase(m, f);
+  // Missed payments come first. A loan offer only goes to a shop with nothing wrong.
+  const detected = loan && (loan === "loan_overdue" || !found) ? { problem: loan, why: LOAN_WHY[loan], thresholdHeadsUp: false } : found;
   if (!detected) return null;
   const { score, reasons } = scoreRisk(risk, f);
   // An open complaint always gets attention, whatever the score says.
-  if (score < ATTENTION_RISK && !detected.thresholdHeadsUp && f.openTickets === 0) return null;
+  if (score < ATTENTION_RISK && !detected.thresholdHeadsUp && f.openTickets === 0 && !loan) return null;
 
   const segment = segmentOf(m);
   const skipReasons = ruleSkips({ ...m, monthlyCollections: f.monthlyCollections }, TODAY);
@@ -126,10 +134,12 @@ function decide(m: Merchant, ctx: RunContext, seed: number, counts: ShardCounts)
 
   const worth = valueOf(m, f, TODAY);
   const headsUp = detected.thresholdHeadsUp === true;
-  const channel = channelFor(detected.problem, f, score, headsUp);
+  const loanRoute = detected.problem === "loan_overdue" ? FIXED_ROUTES.loan_hardship : detected.problem === "loan_opportunity" ? FIXED_ROUTES.loan_offer : null;
+  const channel = loanRoute ? "soundbox" : channelFor(detected.problem, f, score, headsUp);
   let approachId: string;
   let share: number | null = null;
-  if (headsUp) approachId = FIXED_ROUTES.fee_threshold_headsup!.id;
+  if (loanRoute) approachId = loanRoute.id;
+  else if (headsUp) approachId = FIXED_ROUTES.fee_threshold_headsup!.id;
   else if (PLAYBOOK[detected.problem]) {
     // Picks the approach that earns the most for this shop, not just the one that keeps the most.
     const choice = chooseApproach(stats, detected.problem, segment, makeRng(`${seed}-${m.id}`), (id, p) => p * keptWorth(id, worth.total, m.monthlyRent) - moveCost(id));

@@ -23,6 +23,8 @@ export function summaryFacts(m: Merchant, day: number) {
 export function feeFacts(m: Merchant, day: number) {
   const d = m.days[day]!;
   return {
+    paymentsInSettlement: d.count,
+    paymentsFreeOfFee: Math.max(0, d.count - d.countAbove),
     paymentsAbove2000Count: d.countAbove,
     paymentsAbove2000TotalInr: round2(d.valueAbove),
     feeInr: d.fee,

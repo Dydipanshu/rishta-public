@@ -9,6 +9,8 @@ export const REASON_CODES = [
   "low_sales_season",
   "support_unresolved",
   "closing_business",
+  "loan_overdue",
+  "loan_opportunity",
   "other",
   "unknown",
 ] as const;
@@ -25,6 +27,8 @@ export const REASON_LABELS: Record<ReasonCode, string> = {
   low_sales_season: "Low sales season",
   support_unresolved: "Support unresolved",
   closing_business: "Closing business",
+  loan_overdue: "Missed loan payments",
+  loan_opportunity: "Ready for a loan",
   other: "Other",
   unknown: "Unknown",
 };

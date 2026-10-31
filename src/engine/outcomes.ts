@@ -5,7 +5,7 @@ import { audit, type Sql } from "../data/sql.js";
 import { OUTREACH_START_DAY, TODAY } from "../sim/types.js";
 import type { Brief, Outcome } from "./brief.js";
 
-const SERVICE = ["inbound_service", "follow_up_fix"];
+const SERVICE = ["inbound_service", "follow_up_fix", "loan_hardship", "loan_offer"];
 const LEARNS = (b: Brief, o: Outcome) => !SERVICE.includes(b.approachId) && (b.channel !== "human_callback" || o.handledBy === "human");
 
 export interface Place {

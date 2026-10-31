@@ -42,8 +42,9 @@ export default function Sales() {
     <div className="mx-auto min-h-dvh max-w-md bg-paper">
       <header className="bg-gradient-to-br from-[#012a72] to-[#0369a1] px-4 py-5 text-white">
         <div className="text-sm opacity-80">Paytm sales app</div>
-        <h1 className="text-2xl font-bold">Your list for today</h1>
-        {v && <p className="text-sm opacity-80">{callbacks.length} calls and {v.visits.length} visits. Rishta handled the rest.</p>}
+        <h1 className="text-2xl font-bold">Good morning Rahul</h1>
+        <p className="mt-1 text-white/70 text-xs">Your list for today</p>
+        {v && <p className="mt-1">I handled {v.plan.handledByRishta} shopkeepers today. These {v.visits.length} need you in person, and {callbacks.length} need a call. Here's why for each one.</p>}
       </header>
       <h2 className="px-4 pb-1 pt-4 font-semibold text-muted">Call back first</h2>
       {callbacks.map((j: any) => <Job key={j.briefId} job={j} onDone={load} />)}

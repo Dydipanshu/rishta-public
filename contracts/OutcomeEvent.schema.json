@@ -35,6 +35,8 @@
             "plan_changed",
             "ticket_raised",
             "fix_confirmed",
+            "emi_reset",
+            "loan_accepted",
             "handed_off",
             "return_requested",
             "later",
@@ -60,6 +62,8 @@
                   "low_sales_season",
                   "support_unresolved",
                   "closing_business",
+                  "loan_overdue",
+                  "loan_opportunity",
                   "other",
                   "unknown"
                 ]
@@ -90,7 +94,11 @@
               "recordOptOut",
               "sendAppMessage",
               "requestDeviceReturn",
-              "confirmFix"
+              "confirmFix",
+              "checkLoan",
+              "setReducedEmi",
+              "proposeLoan",
+              "acceptLoan"
             ]
           }
         },

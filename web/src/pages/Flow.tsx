@@ -19,7 +19,8 @@ const CHANNEL: Record<string, string> = { soundbox: "Their Soundbox", app: "The 
 const SERIES = ["#0369a1", "#38bdf8", "#cbd5e1"];
 const TONE: Record<string, Tone> = { good: "good", plain: "plain", bad: "bad" };
 const OUTCOME: Record<string, [string, "good" | "plain" | "bad"]> = {
-  stayed: ["Says they'll stay", "good"], plan_changed: ["Plan changed", "good"], ticket_raised: ["Ticket raised, not solved until the shop says so", "plain"], fix_confirmed: ["Shop confirmed the fix worked", "good"],
+  stayed: ["Solved, the shop understood", "good"], plan_changed: ["Plan changed", "good"], ticket_raised: ["Ticket raised, not solved until the shop says so", "plain"], fix_confirmed: ["Shop confirmed the fix worked", "good"],
+  emi_reset: ["Smaller EMI agreed", "good"], loan_accepted: ["Loan sent for approval", "good"],
   return_requested: ["Device return booked", "bad"], later: ["Shop was busy, left in peace", "plain"], undecided: ["Not settled yet", "plain"],
   handed_off: ["Passed to a person", "plain"], no_response: ["Nothing needed", "plain"], opted_out: ["Opted out", "bad"], left: ["Left", "bad"],
 };
@@ -57,7 +58,7 @@ const FACTS: Record<string, [string, "inr" | "pct" | "count"]> = {
 };
 const ACTIONS: Record<string, string> = {
   getMerchantSummary: "Read shop summary", explainFee: "Explain the fee", checkDeviceHealth: "Check the device", raiseTicket: "Raise a ticket", proposePlan: "Suggest a plan",
-  changePlan: "Change the plan", scheduleHumanCallback: "Bring in a person", recordOutcome: "Record the result", recordOptOut: "Stop contact if asked", sendAppMessage: "Send an app message", requestDeviceReturn: "Book a device return", confirmFix: "Record if the fix worked",
+  changePlan: "Change the plan", scheduleHumanCallback: "Bring in a person", recordOutcome: "Record the result", recordOptOut: "Stop contact if asked", sendAppMessage: "Send an app message", requestDeviceReturn: "Book a device return", checkLoan: "Check the loan and sales", setReducedEmi: "Set a smaller EMI, within lender rules", proposeLoan: "Work out loan options", acceptLoan: "Send a loan for approval in the app", confirmFix: "Record if the fix worked",
 };
 
 const pct = (n: number | null) => (n === null ? "–" : `${Math.round(n * 100)}%`);
@@ -209,8 +210,8 @@ function Proof({ v }: { v: View }) {
       </div>
       {r && (
         <Card title="We planted the answers in the test data. Did Rishta find them?">
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            {[[pct(r.reasonAccuracy), `found the planted reason, ${num(r.reasonCases)} shops`], [`${r.winnersFound} of ${r.problems}`, "problems: picked the planted best approach"], [r.backfireFound ? "Yes" : "No", "found the shops where contact backfires"], [`${r.riskLift.toFixed(1)}×`, "the riskiest 10% leave this much more often"]].map(([big, small]) => (
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+            {[[pct(r.reasonAccuracy), `found the planted reason, ${num(r.reasonCases)} shops`], [`${r.winnersFound} of ${r.problems}`, "problems: picked the planted best approach"], [r.backfireFound ? "Yes" : "No", "found the shops where contact backfires"]].map(([big, small]) => (
               <div key={small}><div className="num text-2xl font-bold text-ink">{big}</div><div className="text-sm text-muted">{small}</div></div>
             ))}
           </div>
@@ -292,10 +293,11 @@ function Team({ v, selected }: { v: View; selected: string }) {
   return (
     <div className="space-y-4">
       <PageHead eyebrow="Rishta and the people around it" title={`Rishta takes ${num(p.handledByRishta)} of the ${num(reach)} shops it reaches today. People get the ${num(p.salespersonVisits + p.humanCallbacks)} that need a person.`} />
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Stat label="Solved, confirmed by the shop" value={d.resolvedWithoutHuman} hint={`${d.conversations} conversations today`} tone="good" />
         <Stat label="Fixes waiting to be checked" value={d.promises.waiting} hint={`${d.promises.kept} confirmed, ${d.promises.failed} failed`} />
-        <Stat label="Warm leads for Paytm" value={v.leads.length} hint={`Shops saved ₹${num(d.shopSavedYearInr)} a year on plans`} tone="brand" />
+        <Stat label="Loans sent for approval" value={v.loans.sold} hint={`₹${num(v.loans.soldInr)}, plus ${v.leads.length} warm leads`} tone="brand" />
+        <Stat label="Loan dues back on track" value={`₹${num(v.loans.backOnTrackInr)}`} hint={`${v.loans.eased} shops eased, no person needed`} tone="good" />
         <Stat label="More shops kept per 100" value={`+${lift}`} hint={`Past weeks, simulated: ${pct(d.simulated.keepRate)} vs ${pct(d.simulated.controlRate)}`} />
       </div>
       <div className="grid gap-4 lg:grid-cols-3">
@@ -334,10 +336,10 @@ const RAILS: [string, string, string][] = [
   ["Before the model", "Account and card numbers", "Removed from the text before anyone sees them."],
   ["Before the model", "Asks for a person, abuse", "A person takes over with the full history."],
   ["Before the model", "Stop contacting me", "Opt-out is honoured everywhere, at once."],
-  ["Before the model", "Loan answers", "Built from the shop's record by code. A person does the selling."],
-  ["Before speaking", "Numbers", "Every figure must match this shop's data. Number words are blocked."],
+    ["Before speaking", "Numbers", "Every figure must match this shop's data. Number words are blocked."],
   ["Before speaking", "Wrong labels and promises", "A fee can't be called a discount, and no fix dates are promised."],
   ["Before speaking", "Splitting payments, surcharges", "Advice to avoid the fee is blocked."],
+  ["Before acting", "Loans and EMIs", "Figures come only from code. Smaller EMI only if sales data proves it, within lender rules, after a clear yes. Never a threat, never a link."],
   ["Before acting", "Plan changes", "Only from the catalogue, within budget, after a clear yes."],
   ["Before contact", "Consent, quiet hours, contact cap", "Checked again per shop before anything is sent."],
   ["After the conversation", "Honest results", "\"Stayed\" needs the shop's own words. A fix counts only when the shop confirms."],
@@ -362,8 +364,10 @@ function Guardrails({ v }: { v: View }) {
 }
 
 const SCRIPTS: Record<string, string[]> = {
-  M001: ["मेरे settlement में पैसे कम क्यों आए? मैं तो मशीन वापस करने की सोच रहा था", "अच्छा समझ गया, मैं Soundbox रख लेता हूँ", "हाँ, बात करा दीजिए"],
+  M001: ["मेरे settlement में पैसे कम क्यों आए? मैं तो मशीन वापस करने की सोच रहा था", "अच्छा समझ गया, धन्यवाद", "हाँ, बात करा दीजिए"],
   M002: ["मेरा Soundbox का battery बार बार खत्म हो जाता है"],
+  M007: ["रोड बंद है, दुकान पर ग्राहक नहीं आ रहे", "हाँ ठीक है, यह कर दीजिए"],
+  M008: ["अच्छा, कितना मिलेगा?", "रोज़ का ज़्यादा है", "हाँ ठीक है, यह वाला कर दीजिए"],
   M004: ["Soundbox का rent बहुत ज़्यादा लगता है", "हाँ ठीक है, यह plan कर दीजिए"],
 };
 
@@ -411,7 +415,7 @@ function Today({ v, pick, open }: { v: View; pick: (g: Group) => void; open: (id
     <div className="space-y-4">
       <PageHead eyebrow="Last night's run, no one asked" title={`${num(p.checked)} shops checked. ${p.needAttention} needed a decision.`} />
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Yearly value at risk today" value={`₹${num(Math.round(v.atStake / 100000 * 10) / 10)} L`} hint="Shops Rishta will reach (estimate)" tone="brand" />
+        <Stat label="Yearly value in today's plan" value={`₹${num(Math.round(v.atStake / 100000 * 10) / 10)} L`} hint="Shops Rishta will reach (estimate)" tone="brand" />
         <Stat label="Rishta talks to" value={counts.handled} hint="Soundbox or app" />
         <Stat label="Left alone on purpose" value={counts.left} hint="Rules, or contact doesn't pay" />
         <Stat label="Needs a person" value={counts.visit + counts.callback} hint={`${counts.visit} visits, ${counts.callback} calls`} />
@@ -463,12 +467,11 @@ function Decisions({ v, list, tab, setTab, open }: { v: View; list: any; tab: Gr
             </button>
           ))
           : shown.map((d: any) => (
-            <button key={d.id} onClick={() => open(d.id)} className="row md:grid-cols-[minmax(0,2.2fr)_minmax(0,2fr)_minmax(0,2fr)_100px_44px]">
+            <button key={d.id} onClick={() => open(d.id)} className="row md:grid-cols-[minmax(0,2.2fr)_minmax(0,2fr)_minmax(0,2fr)_100px]">
               <span className="truncate"><b>{d.name}</b> <span className="text-muted">{d.city}</span></span>
               <span>{d.reason}</span>
               <span className="text-muted">{d.approach}</span>
               <span><Pill tone="brand">{CHANNEL_SHORT[d.channel]}</Pill></span>
-              <span className="num text-right text-sm text-muted" title="Stand-in risk score">{d.risk}</span>
             </button>
           ))}
       </div>
@@ -493,7 +496,7 @@ function Shop({ item, v }: { item: any; v: View }) {
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
         <div className="space-y-4">
           <Card title="What Rishta decided">
-            <Rows rows={[["How to help", meta.approachLabel], ["Reach them through", CHANNEL[brief.channel]], ["Goal", brief.goal], ["Risk score (stand-in)", meta.risk]]} />
+            <Rows rows={[["How to help", meta.approachLabel], ["Reach them through", CHANNEL[brief.channel]], ["Goal", brief.goal]]} />
             {pb && <div className="mt-3 border-t border-line pt-2 text-sm">
               {pb.approaches.map((a: any) => <div key={a.id} className={`flex justify-between py-0.5 ${a.id === brief.approachId ? "font-semibold text-ink" : "text-muted"}`}><span>{a.id === brief.approachId ? "→ " : ""}{a.label}</span><span className="num">{pct(a.keepRate)} kept, of {a.n}</span></div>)}
               <p className="mt-1 text-xs text-sim">Past results, simulated.{meta.approachShare != null ? ` ${pct(meta.approachShare)} of shops like this go this way; the rest keep testing.` : ""}</p>
@@ -770,8 +773,9 @@ export default function Flow() {
           {next
             ? <button onClick={next.run} disabled={next.off} className={next.off ? "btn-off" : "btn-primary"}>{next.label}<Icon name="arrow" size={16} /></button>
             : <>
-              <button onClick={() => open("M002")} className="btn-ghost">Try Sharma Medicos</button>
-              <button onClick={() => open("M004")} className="btn-ghost">Try Gupta Snacks</button>
+              <button onClick={() => open("M002")} className="btn-ghost">Sharma Medicos</button>
+              <button onClick={() => open("M007")} className="btn-ghost">Verma: missed EMIs</button>
+              <button onClick={() => open("M008")} className="btn-ghost">Anand: loan</button>
               <button onClick={() => void startOver()} className="btn-primary">Start over</button>
             </>}
         </footer>

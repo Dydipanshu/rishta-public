@@ -9,7 +9,7 @@ export async function resetLive(sql: Sql) {
       await tx.run("UPDATE merchants SET plan_id = ?, monthly_rent = ? WHERE id = ?", [r.from_plan, rent, r.merchant_id]);
     }
     await tx.run("UPDATE merchants SET opted_out = 0 WHERE is_demo = 1");
-    for (const t of ["conversations", "outcomes", "handoffs", "inbox", "plan_changes", "outreach", "ticket_numbers", "promises", "notes", "leads"]) await tx.run(`DELETE FROM ${t}`);
+    for (const t of ["conversations", "outcomes", "handoffs", "inbox", "plan_changes", "outreach", "ticket_numbers", "promises", "notes", "leads", "loan_actions"]) await tx.run(`DELETE FROM ${t}`);
     await tx.run("DELETE FROM briefs WHERE sort_key < 0");
     await tx.run("DELETE FROM tickets WHERE live = 1");
     await tx.run("DELETE FROM reason_events WHERE live = 1");

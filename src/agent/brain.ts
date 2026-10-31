@@ -1,4 +1,3 @@
-import { LOAN_GUIDE } from "../../config/value.js";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { z } from "zod";
@@ -22,9 +21,9 @@ import { runTool, toolsFor, type ToolContext } from "./tools.js";
 const TEMPLATE = readFileSync(new URL("./prompts/system.md", import.meta.url), "utf8");
 const READ_TOOLS = new Set(["getMerchantSummary", "explainFee", "checkDeviceHealth", "proposePlan"]);
 const GOODBYE = /(धन्यवाद|दिन शुभ|thank you|good day|nice day|great day)[^?]*[।.!]?\s*$/i;
-const CONFIRMED = new Set(["raiseTicket", "changePlan", "requestDeviceReturn"]);
+const CONFIRMED = new Set(["raiseTicket", "changePlan", "requestDeviceReturn", "setReducedEmi", "acceptLoan"]);
 const CARE = /(hospital|अस्पताल|बीमार|ऑपरेशन|operation|गुज़र|गुजर|निधन|शादी|death|passed away|ill\b|sick)/i;
-const STAYING = /रखूँगा|रखूंगा|रखूँगी|रखूंगी|रख लेता|रखता हूँ|रखेंगे|नहीं लौटा|वापस नहीं|समझ गया|समझ गई|समझ आ गया|समझ आ गई|ठीक है|ठीक हो गया|सब ठीक|और कुछ नहीं|कुछ नहीं|धन्यवाद|शुक्रिया|thanks?\b|thank you|i'?ll keep|will keep|understood|got it|okay|\bok\b/i;
+const STAYING = /\b(samajh gaya|samajh gayi|samajh aa gaya|theek hai|thik hai|achha|accha|dhanyavaad|shukriya|thanks|thank you|ok|okay|understood|got it)\b|समझ|ठीक है|धन्यवाद|शुक्रिया|रखूँगा|रखूंगा|रखूँगी|रखूंगी|रख लेता|रखता हूँ|रखेंगे|नहीं लौटा|वापस नहीं|समझ गया|समझ गई|समझ आ गया|समझ आ गई|ठीक है|ठीक हो गया|सब ठीक|और कुछ नहीं|कुछ नहीं|धन्यवाद|शुक्रिया|thanks?\b|thank you|i'?ll keep|will keep|understood|got it|okay|\bok\b/i;
 const LOAN_ASK = ["एक बात और, आपकी दुकान का record अच्छा है। अगर चाहें तो Paytm से एक व्यक्ति business loan के बारे में बता सकता है। बात कराऊँ?", "One more thing: your shop's record is good. If you'd like, a person from Paytm can tell you about a business loan. Shall I arrange that?"] as const;
 const LOAN_YES = ["जी, वे आपको call करेंगे। धन्यवाद, आपका दिन शुभ हो।", "They will call you. Thank you, have a good day."] as const;
 const LOAN_NO = ["जी, कोई बात नहीं। धन्यवाद, आपका दिन शुभ हो।", "No problem. Thank you, have a good day."] as const;
@@ -51,6 +50,8 @@ function confirmation(call: string, result: Record<string, unknown>, english: bo
   if (call === "requestDeviceReturn") {
     return english ? `Your return request ${result.ticketId} is booked. The pickup team will contact you. You can come back any time. Thank you.` : `जी, आपकी वापसी का request ${result.ticketId} बन गया है। Pickup team आपसे संपर्क करेगी। आप कभी भी वापस आ सकते हैं। धन्यवाद।`;
   }
+  if (call === "setReducedEmi") return english ? `Done. Your EMI is ₹${Number(result.reducedEmiInr).toLocaleString("en-IN")} for ${result.reliefMonths} months. The details are in your app. Thank you.` : `जी, हो गया। ${result.reliefMonths} महीने के लिए आपकी EMI ₹${Number(result.reducedEmiInr).toLocaleString("en-IN")} है। पूरी जानकारी आपके app में है। धन्यवाद।`;
+  if (call === "acceptLoan") return english ? `Sent to your Paytm app for approval: ₹${Number(result.dailyInr)} a day. The lender makes the final decision. Please never share an OTP. Thank you.` : `जी, यह आपके Paytm app में approval के लिए भेज दिया: रोज़ ₹${Number(result.dailyInr)}। अंतिम फ़ैसला lender करेगा। OTP किसी को मत बताइएगा। धन्यवाद।`;
   if (call === "changePlan") {
     return english ? `Your plan is now ${result.newPlan}. Your rent will be ₹${result.newRentInr} a month. Thank you.` : `जी, आपका plan ${result.newPlan} हो गया है। अब rent ₹${result.newRentInr} महीना लगेगा। धन्यवाद।`;
   }
@@ -419,8 +420,6 @@ export class Conversation {
     } else if (route === "trust" || route === "account") {
       this.state.input.pop();
       yield this.fixed(LINES[route], english);
-    } else if (route === "loan") {
-      yield this.fixed(await this.loanAnswer(), english);
     } else if (route === "human") {
       await core.scheduleCallback(id, "Merchant asked for a person", this.ctx.transcriptText());
       this.ctx.onOutcome("handed_off", "Merchant asked for a person.");
@@ -440,17 +439,6 @@ export class Conversation {
     }
   }
 
-  // Everything said about a loan comes from code: the shop's own record, never the model.
-  private async loanAnswer(): Promise<readonly [string, string]> {
-    const m = await this.deps.core.merchant(this.brief.merchantId);
-    const monthly = Number(this.brief.facts.collections30DaysInr ?? 0);
-    if (!shopValue(m, monthly, TODAY - m.onboardDay, 0).loanReady) return LINES.loanNotYet;
-    this.state.loan = "asked";
-    const size = Math.floor((monthly * LOAN_GUIDE.monthsOfCollections) / LOAN_GUIDE.roundTo) * LOAN_GUIDE.roundTo;
-    const amount = `₹${size.toLocaleString("en-IN")}`;
-    return [`जी, आपकी दुकान का record अच्छा है। आपकी collection देखकर करीब ${amount} तक के loan की बात हो सकती है। अंतिम रकम और ब्याज lender तय करता है, और किस्त settlement से कटती है। एक व्यक्ति से बात कराऊँ?`, `Your shop's record is good. Based on your collections, a loan of around ${amount} could be discussed. The lender decides the final amount and interest, and repayments come from your settlement. Shall I arrange a call with a person?`];
-  }
-
   private async lead(why = "Shop agreed to hear about a business loan after its problem was solved") {
     const m = await this.deps.core.merchant(this.brief.merchantId);
     const monthly = Number(this.brief.facts.collections30DaysInr ?? 0);
@@ -461,7 +449,7 @@ export class Conversation {
   // Only a shop whose problem is solved, and whose record supports it, is asked. Asked once, and a person does the selling.
   private async loanAsk(english: boolean) {
     const last = this.transcript.filter((t) => t.role === "merchant").at(-1)?.text ?? "";
-    if (this.state.loan || !SOLVED.includes(this.state.outcome as OutcomeKind) || !STAYING.test(last) || this.brief.problem === "unknown") return null;
+    if (this.brief.problem.startsWith("loan_") || this.actions.includes("acceptLoan") || this.state.loan || !SOLVED.includes(this.state.outcome as OutcomeKind) || !STAYING.test(last) || this.brief.problem === "unknown") return null;
     const m = await this.deps.core.merchant(this.brief.merchantId);
     const monthly = Number(this.brief.facts.collections30DaysInr ?? 0);
     if (!shopValue(m, monthly, TODAY - m.onboardDay, 0).loanReady) return null;
@@ -498,6 +486,8 @@ export class Conversation {
     const claimed = this.state.outcome;
     if (this.state.loan && claimed && SOLVED.includes(claimed)) return claimed;
     if (claimed === "opted_out" || claimed === "handed_off" || claimed === "left" || claimed === "return_requested" || claimed === "later" || claimed === "fix_confirmed") return claimed;
+    if (this.actions.includes("acceptLoan")) return "loan_accepted";
+    if (this.actions.includes("setReducedEmi")) return "emi_reset";
     if (this.actions.includes("changePlan")) return "plan_changed";
     if (this.actions.includes("raiseTicket")) return "ticket_raised";
     if (!merchantSpoke || claimed === "no_response") return "no_response";

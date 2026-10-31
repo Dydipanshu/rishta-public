@@ -40,6 +40,8 @@ export interface AppDeps extends AgentDeps {
 const ANNOUNCEMENT = "Paytm पर पाँच सौ रुपये प्राप्त हुए।";
 const FILLERS = ["जी, एक second।", "जी, देखती हूँ।"];
 const NUDGES: Record<string, string> = {
+  loan_overdue: "आपके loan के बारे में बात करनी है, मदद के लिए। नीचे का बटन दबाइए।",
+  loan_opportunity: "आपकी बिक्री बढ़ रही है। त्योहार के stock के लिए एक सुझाव है, जानने के लिए बटन दबाइए।",
   fee_confusion: "आपके settlement में कुछ कम आया है। जानने के लिए नीचे का बटन दबाइए।",
   device_fault: "आपकी मशीन में कुछ दिक्कत दिख रही है। जानने के लिए नीचे का बटन दबाइए।",
   rent_too_high: "आपके plan के बारे में एक ज़रूरी बात है। जानने के लिए नीचे का बटन दबाइए।",

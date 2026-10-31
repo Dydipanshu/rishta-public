@@ -61,10 +61,6 @@ describe("router", () => {
     expect(routeTurn("किसी ने मेरे साथ fraud किया")).toBe("fraud");
   });
   it("sends abuse to a person, not to an opt-out", () => expect(routeTurn("तुम बेवकूफ हो, बकवास बंद करो")).toBe("human"));
-  it("hears a request for a loan, and a no", () => {
-    expect(routeTurn("mera loan kab milega")).toBe("loan");
-    expect(routeTurn("loan नहीं चाहिए")).toBeNull();
-  });
   it("removes account numbers before anyone sees them", () => {
     const text = hideLongNumbers("मेरा account 1234 5678 9012 है");
     expect(text).not.toMatch(/\d/);

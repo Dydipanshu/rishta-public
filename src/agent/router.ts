@@ -1,15 +1,13 @@
 // Decided by code, before the model, because these must never depend on a model's mood.
 import { FRAUD_HELPLINE } from "../../config/value.js";
 
-export type Route = "fraud" | "trust" | "human" | "optout" | "later" | "quiet" | "loan" | "account" | null;
+export type Route = "fraud" | "trust" | "human" | "optout" | "later" | "quiet" | "account" | null;
 
 const FRAUD = /fraud|scam|धोखा|धोखाधड़ी|ठग|ठगी|फ्रॉड|फ्रॉड|पुलिस|police|कोर्ट|court|वकील|lawyer|कानूनी|legal/i;
 const LOSS = /(otp|पिन|pin|ओटीपी)[^।?!.]{0,30}(बता दिया|दे दिया|शेयर|share|gave|told)|(खाते|account)[^।?!.]{0,20}(पैसे|money)?[^।?!.]{0,12}(कट गए|निकल गए|गायब)/i;
 // "Is this a scam?" is a good question, not a fraud report.
 const TRUST = /(is (this|it)|are you|क्या (यह|ये|तुम|आप)|kya|ye|yeh)[^।?!.]{0,25}(scam|fraud|fake|real|genuine|असली|नकली|फर्जी|फ़र्ज़ी|धोखा)|how (do|can) i (know|trust)|really paytm|(असली|सच में) paytm/i;
 const ABUSE = /बेवकूफ|बकवास|मूर्ख|गधे|idiot|stupid|nonsense|bloody/i;
-const LOAN = /\bloan\b|लोन|कर्ज|क़र्ज़/i;
-const NOT_LOAN = /(loan|लोन|कर्ज|क़र्ज़)[^।?!.]{0,15}(नहीं|मत|\bno\b)|(no|don'?t want)[^।?!.]{0,15}loan/i;
 export const HIDDEN = "[number removed]";
 // Account, card and phone numbers never reach the model, the transcript or the logs.
 export const hideLongNumbers = (text: string) => text.replace(/\d(?:[\s-]?\d){8,}/g, HIDDEN);
@@ -25,7 +23,6 @@ export function routeTurn(text: string): Route {
   if (ABUSE.test(text) || HUMAN.test(text)) return "human";
   if (OPT_OUT.test(text)) return "optout";
   if (text.includes(HIDDEN)) return "account";
-  if (LOAN.test(text) && !NOT_LOAN.test(text)) return "loan";
   if (QUIET.test(text)) return "quiet";
   if (LATER.test(text)) return "later";
   return null;
@@ -36,7 +33,6 @@ export const LINES = {
   fraud: [`जी, यह गंभीर है। अभी अपना PIN बदलिए और ${FRAUD_HELPLINE} पर call कीजिए। Paytm की fraud team का एक व्यक्ति आपको call करेगा।`, `This is serious. Change your PIN now and call ${FRAUD_HELPLINE}. A person from Paytm's fraud team will call you.`],
   trust: ["जाँच करना बिल्कुल सही है। मैं Paytm की AI assistant हूँ। मैं OTP, PIN या bank details कभी नहीं माँगूँगी और कोई link नहीं भेजूँगी। अपना हिसाब आप खुद Paytm for Business app में देख सकते हैं।", "You're right to check. I'm Paytm's AI assistant. I will never ask for an OTP, PIN or bank details, and I won't send links. You can see your own figures in the Paytm for Business app."],
   account: ["जी, account या card का number मुझे मत बताइए, मुझे इसकी ज़रूरत नहीं। मैंने उसे हटा दिया है। बताइए, क्या दिक्कत है?", "Please don't share account or card numbers, I don't need them. I've removed it. What's the problem?"],
-  loanNotYet: ["जी, अभी loan के लिए दुकान का record थोड़ा और चाहिए। कुछ महीने अच्छी collection रहने पर मैं खुद बता दूँगी।", "Your shop needs a little more record before a loan. After a few more good months, I'll tell you myself."],
   loanNoted: ["जी, वे आपको call करेंगे। अब आपकी बात पर आते हैं, क्या दिक्कत है?", "They will call you. Now, what was the problem?"],
   loanSkipped: ["जी, कोई बात नहीं। बताइए, और क्या दिक्कत है?", "No problem. What else can I help with?"],
   again: ["जी, मैं समझ नहीं पाई। कृपया एक बार फिर बताइए।", "Sorry, I didn't catch that. Please say it once more."],

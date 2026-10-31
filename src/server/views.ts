@@ -114,6 +114,12 @@ async function ledger(sql: Sql, panels: Awaited<ReturnType<typeof playbook>>) {
   });
 }
 
+async function loans(sql: Sql) {
+  const rows = await sql.all<{ kind: string; n: number; total: number }>("SELECT kind, COUNT(*) AS n, SUM(amount_inr) AS total FROM loan_actions GROUP BY kind");
+  const of = (k: string) => rows.find((r) => r.kind === k);
+  return { eased: Number(of("emi_reset")?.n ?? 0), backOnTrackInr: Number(of("emi_reset")?.total ?? 0), sold: Number(of("loan_accepted")?.n ?? 0), soldInr: Number(of("loan_accepted")?.total ?? 0) };
+}
+
 async function guardrails(sql: Sql) {
   const rows = await sql.all<{ kind: string; n: number }>("SELECT kind, COUNT(*) AS n FROM audit_log GROUP BY kind");
   const count = (a: string) => Number(rows.find((r) => r.kind === a)?.n ?? 0);
@@ -206,6 +212,7 @@ export async function consoleView(sql: Sql, core: PaytmCore) {
     ledger: await ledger(sql, playbookPanel),
     atStake: await atStake(sql),
     guardrails: await guardrails(sql),
+    loans: await loans(sql),
     activity: await activity(sql),
     assumptions: { cost: COST },
     plan: parse(plan!.json),
@@ -227,7 +234,7 @@ export async function decisionsView(sql: Sql) {
   return {
     decided: briefs.map((b) => {
       const m = parse(b.meta);
-      return { id: b.merchant_id, name: m.name, city: m.city, reason: m.reasonLabel, why: m.why, approach: m.approachLabel, channel: b.channel, risk: m.risk };
+      return { id: b.merchant_id, name: m.name, city: m.city, reason: m.reasonLabel, why: m.why, approach: m.approachLabel, channel: b.channel};
     }),
     left: left.map((l) => ({ id: l.merchant_id, name: l.name, city: l.city, kind: l.kind, reasons: parse(l.reasons) })),
   };

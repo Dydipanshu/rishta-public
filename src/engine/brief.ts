@@ -14,6 +14,10 @@ export const ACTION_NAMES = [
   "sendAppMessage",
   "requestDeviceReturn",
   "confirmFix",
+  "checkLoan",
+  "setReducedEmi",
+  "proposeLoan",
+  "acceptLoan",
 ] as const;
 export const ActionName = z.enum(ACTION_NAMES);
 export type ActionName = z.infer<typeof ActionName>;
@@ -40,7 +44,7 @@ export const Brief = z.object({
 });
 export type Brief = z.infer<typeof Brief>;
 
-export const OutcomeKind = z.enum(["stayed", "plan_changed", "ticket_raised", "fix_confirmed", "handed_off", "return_requested", "later", "undecided", "opted_out", "left", "no_response"]);
+export const OutcomeKind = z.enum(["stayed", "plan_changed", "ticket_raised", "fix_confirmed", "emi_reset", "loan_accepted", "handed_off", "return_requested", "later", "undecided", "opted_out", "left", "no_response"]);
 export type OutcomeKind = z.infer<typeof OutcomeKind>;
 
 export const Outcome = z.object({
@@ -57,7 +61,7 @@ export const Outcome = z.object({
 export type Outcome = z.infer<typeof Outcome>;
 
 // A problem only counts as solved when the shop says so. A raised ticket is work in progress.
-export const SOLVED: readonly OutcomeKind[] = ["stayed", "plan_changed", "fix_confirmed"];
+export const SOLVED: readonly OutcomeKind[] = ["stayed", "plan_changed", "fix_confirmed", "emi_reset", "loan_accepted"];
 
 export const MUST_SAY = ["Main Paytm ki AI assistant hoon.", "Paytm kabhi OTP ya PIN nahi maangta."];
 export const MUST_NOT = [
@@ -68,5 +72,7 @@ export const MUST_NOT = [
   "Ask about competitors",
   "Promise a refund, a waiver or a date",
   "Offer a discount unless the shop says it is leaving",
+  "Threaten, shame or pressure anyone over dues",
+  "State any loan figure that a tool did not give",
 ];
 export const ESCALATE_IF = ["Merchant asks for a person", "Merchant is abusive", "Merchant mentions legal action or fraud", "Merchant is still unhappy after one explanation"];
