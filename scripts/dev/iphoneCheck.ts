@@ -32,6 +32,7 @@ const fakeMic = (denied: boolean) => {
 const open = async (denied: boolean) => {
   const browser = await webkit.launch();
   const ctx = await browser.newContext({ ...devices["iPhone 13"]! });
+  await ctx.addInitScript("window.__name = (f) => f"); // tsx wraps functions with this helper
   await ctx.addInitScript(fakeMic, denied);
   const page = await ctx.newPage();
   page.on("pageerror", (e) => check(false, `page error: ${e.message}`));
@@ -68,7 +69,7 @@ const press = (page: Page, type: string) => mic(page).dispatchEvent(type, { poin
   const input = page.getByLabel("Type your message");
   check(parseFloat(await input.evaluate((e) => getComputedStyle(e).fontSize)) >= 16, "input text is 16px or more, so no zoom");
   check((await page.evaluate(() => document.querySelector('meta[name=viewport]')!.getAttribute("content")))!.includes("viewport-fit=cover"), "viewport reaches the screen edges");
-  check((await mic(page).evaluate((e) => getComputedStyle(e).getPropertyValue("-webkit-touch-callout"))) === "none", "long press shows no menu");
+  check(await page.evaluate(async () => { const links = [...document.querySelectorAll<HTMLLinkElement>("link[rel=stylesheet]")]; return (await Promise.all(links.map(async (l) => (await fetch(l.href)).text()))).join("").includes("touch-callout:none"); }), "long press shows no menu");
 
   // Tap once to listen, tap again to send.
   await mic(page).tap();
@@ -114,6 +115,7 @@ const press = (page: Page, type: string) => mic(page).dispatchEvent(type, { poin
 {
   const browser = await webkit.launch();
   const ctx = await browser.newContext({ ...devices["iPhone SE"]! });
+  await ctx.addInitScript("window.__name = (f) => f"); // tsx wraps functions with this helper
   await ctx.addInitScript(fakeMic, false);
   const page = await ctx.newPage();
   for (const path of ["/", "/?shop=M001", "/new", "/sales"]) {
