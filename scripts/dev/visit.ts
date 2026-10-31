@@ -30,6 +30,16 @@ async function phone(browser: Browser, name: string, device: (typeof devices)[st
   await page.getByText(/44\.84/).first().waitFor({ timeout: 30_000 });
   await page.waitForTimeout(1500);
   await page.screenshot({ path: `${OUT}/${name}-reply.png` });
+  if (name === "android") {
+    // Chromium's fake mic plays a beep, so this proves the states and the upload, not the words.
+    const mic = page.getByRole("button", { name: "Hold to talk" });
+    const before = await page.locator(".rise").count();
+    await mic.click();
+    await page.getByText(/सुन रही हूँ/).first().waitFor();
+    await page.waitForTimeout(1500);
+    await mic.click();
+    await page.waitForFunction((n) => document.querySelectorAll(".rise").length > n, before, { timeout: 30_000 }).catch(() => problems.push("android: mic gave no reply"));
+  }
   await page.getByRole("button", { name: "Change shop" }).click();
   await page.getByText("Sharma Medicos").first().waitFor();
   await page.screenshot({ path: `${OUT}/${name}-picker.png` });

@@ -1,0 +1,45 @@
+# iPhone 13 in real WebKit. The mic and the talk endpoint are faked, so no secrets and no model calls.
+name: iPhone check
+on:
+  workflow_dispatch:
+  push:
+    branches: [public-site, main]
+    paths: ["web/**", "scripts/dev/iphoneCheck.ts", ".github/workflows/webkit.yml"]
+permissions:
+  contents: read
+jobs:
+  webkit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SKIP_KEYS: "1"
+      PUBLIC_SITE: "true"
+      PORT: "3000"
+      SARVAM_API_KEY: not-used
+      OPENAI_API_KEY: not-used
+      OPENAI_MODEL: not-used
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps webkit
+      - run: pnpm build
+      - run: pnpm seed
+      - run: pnpm exec tsx scripts/buildVisitorTemplate.ts
+      - name: Start the site
+        run: |
+          nohup pnpm start > server.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf localhost:3000/api/site && exit 0; sleep 2; done
+          cat server.log; exit 1
+      - run: mkdir -p out/iphone && pnpm exec tsx scripts/dev/iphoneCheck.ts out/iphone
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iphone-screens
+          path: |
+            out/iphone
+            server.log
