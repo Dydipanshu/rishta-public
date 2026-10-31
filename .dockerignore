@@ -3,4 +3,8 @@ dist
 data
 out
 .env
+.env.*
 .git
+*.pdf
+ctric.md
+eval/stt-clips

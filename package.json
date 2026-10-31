@@ -19,7 +19,8 @@
     "reset": "tsx scripts/resetDemo.ts",
     "typecheck:web": "tsc --noEmit -p web",
     "daily": "tsx src/worker/daily.ts",
-    "contracts": "tsx scripts/writeContracts.ts"
+    "contracts": "tsx scripts/writeContracts.ts",
+    "deploy:hf": "bash scripts/deployHf.sh"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
