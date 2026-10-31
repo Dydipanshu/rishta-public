@@ -104,7 +104,7 @@ interface ShardCounts {
   holdoutWatched: number;
 }
 
-function decide(m: Merchant, ctx: RunContext, seed: number, counts: ShardCounts, loanChecks: unknown[][]) {
+function decide(m: Merchant, ctx: RunContext, seed: number, counts: ShardCounts, loanChecks: unknown[][], asked = false) {
   const { risk, stats, learned } = ctx;
   const f = buildFeatures(m, TODAY);
   if (f.daysSinceLastPayment >= 14) return null;
@@ -122,7 +122,7 @@ function decide(m: Merchant, ctx: RunContext, seed: number, counts: ShardCounts,
   if (!detected) return null;
   const { score, reasons } = scoreRisk(risk, f);
   // An open complaint always gets attention, whatever the score says.
-  if (score < ATTENTION_RISK && !detected.thresholdHeadsUp && f.openTickets === 0 && !loan) return null;
+  if (score < ATTENTION_RISK && !detected.thresholdHeadsUp && f.openTickets === 0 && !loan && !asked) return null;
 
   const segment = segmentOf(m);
   const skipReasons = ruleSkips({ ...m, monthlyCollections: f.monthlyCollections }, TODAY);
@@ -250,6 +250,22 @@ export async function runShards(sql: Sql, core: PaytmCore, seed: number, lo: num
     await tx.run("INSERT INTO run_shards (lo, hi, json) VALUES (?, ?, ?)", [lo, hi, JSON.stringify(counts)]);
   });
   return counts;
+}
+
+// Decides for one new shop the way the nightly run would, using everything learned so far.
+export async function planShop(sql: Sql, core: PaytmCore, seed: number, id: string) {
+  const ctx = await prepare(sql);
+  const m = await core.merchant(id);
+  const counts: ShardCounts = { checked: 1, active: 0, leftAlone: 0, holdoutWatched: 0 };
+  // Someone made this shop to see what Rishta does, so a problem that isn't urgent yet still gets an answer.
+  const d = decide(m, ctx, seed, counts, [], true);
+  await sql.tx(async (tx) => {
+    if (d?.skip) await tx.bulk("left_alone", ["merchant_id", "name", "city", "kind", "reasons", "is_demo", "shard"], [[m.id, m.name, m.city, d.skip.kind, JSON.stringify(d.skip.reasons), 1, shardOf(m.id)]]);
+    if (d?.candidate) {
+      const c = d.candidate;
+      await tx.bulk("briefs", ["brief_id", "merchant_id", "sort_key", "json", "meta", "channel", "value", "shard"], [[c.brief.briefId, c.brief.merchantId, c.sortKey, JSON.stringify(c.brief), JSON.stringify(c.meta), c.brief.channel, c.value, shardOf(m.id)]]);
+    }
+  });
 }
 
 // Runs once all shards finish: applies the shared limits and publishes the plan.

@@ -1,3 +1,4 @@
+import { RoleTabs } from "../ui";
 import { useCallback, useEffect, useState } from "react";
 import { useEvents } from "../hooks/useEvents";
 
@@ -64,6 +65,7 @@ export default function Sales() {
   const list = [...todo, ...jobs.filter((j) => j.job.closed)];
   return (
     <div className="mx-auto h-dvh max-w-md overflow-y-auto bg-paper pb-4">
+      <div className="px-2 py-1.5"><RoleTabs on="sales" /></div>
       <header className="bg-gradient-to-br from-[#012a72] to-[#0369a1] px-4 py-4 text-white">
         <div className="text-sm opacity-80">Paytm sales app</div>
         <h1 className="text-2xl font-bold">{v ? `${todo.length} shops to talk to today` : " "}</h1>

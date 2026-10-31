@@ -25,6 +25,13 @@ const schema = z.object({
   RISHTA_API_KEY: z.string().default("demo-key"),
   SESSION_SECRET: z.string().default("demo-secret"),
   LOG_LEVEL: z.string().default("info"),
+  // The public site: every visitor gets a private copy, and spending has hard limits.
+  PUBLIC_SITE: z.stringbool().default(false),
+  VISITOR_DIR: z.string().default("data/visitors"),
+  VISITOR_MAX_TURNS: z.coerce.number().int().default(80),
+  VISITOR_MAX_VOICE_TURNS: z.coerce.number().int().default(30),
+  SITE_MAX_TURNS_PER_DAY: z.coerce.number().int().default(8000),
+  MAX_CONCURRENT_TURNS: z.coerce.number().int().default(30),
 }).refine(
   (s) => s.APP_ENV !== "production" || (s.RISHTA_API_KEY !== "demo-key" && s.SESSION_SECRET.length >= 32 && !!s.DATABASE_URL?.startsWith("postgres") && !!s.KAFKA_BROKERS),
   { message: "production needs RISHTA_API_KEY, a 32+ character SESSION_SECRET, Postgres and Kafka" },

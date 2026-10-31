@@ -19,7 +19,7 @@ export const heardClearly = (text: string, language = HINDI) => {
 export function makeStt(s: Settings) {
   const sarvam = new SarvamAIClient({ apiSubscriptionKey: s.SARVAM_API_KEY });
   const transcribe = (audio: Buffer, contentType: string, language: "unknown" | "hi-IN") => withTimeout(sarvam.speechToText.transcribe({
-    file: { data: audio, filename: "clip.webm", contentType },
+    file: { data: audio, filename: contentType.includes("mp4") ? "clip.m4a" : "clip.webm", contentType },
     model: s.SARVAM_STT_MODEL as "saaras:v4",
     mode: "codemix",
     language_code: language,

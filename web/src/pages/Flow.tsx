@@ -1,7 +1,7 @@
 import qrcode from "qrcode-generator";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEvents } from "../hooks/useEvents";
-import { Card, Empty, Icon, PageHead, Pill, SimTag, Skeleton, Stat, type Tone } from "../ui";
+import { Card, Empty, Icon, PageHead, Pill, RoleTabs, SimTag, Skeleton, Stat, type Tone } from "../ui";
 import MerchantPhone from "./MerchantPhone";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -810,7 +810,7 @@ export default function Flow() {
             return <li key={p}><button aria-current={on ? "page" : undefined} onClick={() => go(["/shop", "/talk"].includes(p) ? withShop(p) : p)} className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[0.95rem] ${on ? "bg-paytm/12 font-semibold text-paytm-deep" : "text-muted hover:bg-paper hover:text-ink"}`}><Icon name={icon} />{label}</button></li>;
           })}
           <li className="pt-3"><a href="/" className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[0.95rem] font-semibold text-paytm-deep hover:bg-paper"><Icon name="talk" />Talk as any shop</a></li>
-          <li><a href="/sales" target="_blank" rel="noreferrer" className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[0.95rem] text-muted hover:bg-paper hover:text-ink"><Icon name="phone" />Sales app</a></li>
+          <li><a href="/sales" className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[0.95rem] text-muted hover:bg-paper hover:text-ink"><Icon name="phone" />Sales app</a></li>
         </ul>
         <div className="space-y-2 border-t border-line p-3 text-sm">
           <Pill tone="warn">Simulated test bench</Pill>
@@ -818,6 +818,7 @@ export default function Flow() {
         </div>
       </nav>
       <div className="flex min-w-0 flex-1 flex-col">
+        <div className="border-b border-line bg-white px-2 py-1.5 md:hidden"><RoleTabs on="manager" /></div>
         <header className="flex items-center gap-4 border-b border-line bg-white px-4 py-2 md:px-6">
           <button onClick={() => go("/")} className="flex items-center gap-2 font-bold md:hidden"><Logo />Rishta</button>
           <div className="min-w-0 flex-1 truncate text-sm text-muted md:hidden">Step {index + 1} of {STEPS.length}</div>
@@ -847,7 +848,7 @@ export default function Flow() {
         <footer className="flex flex-wrap items-center gap-3 border-t border-line bg-white px-4 py-2.5 md:px-6">
           <button onClick={() => history.back()} aria-label="Back" className="btn-quiet"><Icon name="back" size={16} /></button>
           <ol className="hidden gap-1 md:flex" aria-label="Progress">{STEPS.map(([p, label], i) => <li key={p} aria-current={i === index ? "step" : undefined} title={label} className={`h-1.5 w-6 rounded-full ${i < index ? "bg-paytm-deep" : i === index ? "bg-paytm" : "bg-idle"}`} />)}</ol>
-          <p role="status" className="min-w-0 flex-1 text-[0.95rem] text-ink">{error ? <span className="text-callback">{error}</span> : status}</p>
+          <p role="status" className="hidden min-w-0 flex-1 text-[0.95rem] text-ink md:block">{error ? <span className="text-callback">{error}</span> : status}</p>
           {next
             ? <button onClick={next.run} disabled={next.off} className={next.off ? "btn-off" : "btn-primary"}>{next.label}<Icon name="arrow" size={16} /></button>
             : <>

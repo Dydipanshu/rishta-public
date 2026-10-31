@@ -5,14 +5,24 @@ export interface Line {
   text: string;
 }
 
-const MIN_HOLD_MS = 500;
+const TAP_MS = 400;
+const MAX_CLIP_MS = 25_000;
 const RELEASE_TAIL_MS = 250;
+const SILENCE = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQxAADB8AhSmxhIIEVCSiJrDCQBTcu3UrAIwUdkRgQbFAZC1CQEwTJ9mjRvBA4UOLD8nKVOWfh+UlK3z/177OXrfOdKl7pyn3Xf//WreyTRUoAWgBgkOAGbZHBgG1OF6zM82DWbZaUmMBptgQhGjsyYqc9ae9XFz280948NMBWInljyzsNRFLPWdnZGWrddDsjK1unuSrVN9jJsK8KuQtQCtMBjCEtImISdNKJOopIpBFpNSMbIHCSRpRR5iakjTiyzLhchUUBwCgyKiweBv/7UsQbg8isVNoMPMjAAAA0gAAABEVFGmgqK////9bP/6XCykxBTUUzLjEwMKqqqqqqqqqqqqo=";
+const clipType = () => ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((t) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(t));
 
 // Plays URLs one after another; press interrupts.
 function useAudioQueue() {
   const queue = useRef<string[]>([]);
   const current = useRef<HTMLAudioElement | null>(null);
+  // Phones only allow sound on an element first played from a tap, so one element plays everything.
+  const player = useRef<HTMLAudioElement | null>(null);
   const [speaking, setSpeaking] = useState(false);
+  const unlock = useCallback(() => {
+    if (player.current) return;
+    player.current = new Audio(SILENCE);
+    void player.current.play().catch(() => undefined);
+  }, []);
 
   const next = useCallback(() => {
     const url = queue.current.shift();
@@ -21,7 +31,8 @@ function useAudioQueue() {
       setSpeaking(false);
       return;
     }
-    const audio = new Audio(url);
+    const audio = player.current ?? new Audio();
+    audio.src = url;
     current.current = audio;
     setSpeaking(true);
     audio.onended = next;
@@ -41,11 +52,11 @@ function useAudioQueue() {
     setSpeaking(false);
   }, []);
 
-  return { push, stop, speaking };
+  return { push, stop, speaking, unlock };
 }
 
 export function usePushToTalk(merchantId: string, onLine: (l: Line) => void, onDone: () => void) {
-  const { push, stop, speaking } = useAudioQueue();
+  const { push, stop, speaking, unlock } = useAudioQueue();
   const [recording, setRecording] = useState(false);
   const [thinking, setThinking] = useState(false);
   const [error, setError] = useState("");
@@ -53,11 +64,12 @@ export function usePushToTalk(merchantId: string, onLine: (l: Line) => void, onD
   const stream = useRef<MediaStream | null>(null);
   const chunks = useRef<Blob[]>([]);
   const pressedAt = useRef(0);
-  const heldFor = useRef(0);
+  const locked = useRef(false);
+  const limit = useRef<ReturnType<typeof setTimeout>>(undefined);
   const busy = useRef(false);
 
   const readReply = useCallback(async (res: Response) => {
-    if (!res.ok || !res.body) throw new Error("No brief for this merchant");
+    if (!res.ok || !res.body) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? "कुछ गड़बड़ हुई। फिर से कोशिश करें।");
     const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
     let buffer = "";
     for (;;) {
@@ -95,43 +107,57 @@ export function usePushToTalk(merchantId: string, onLine: (l: Line) => void, onD
     setThinking(false);
   }, [merchantId, readReply]);
 
-  const start = useCallback(async () => {
-    stop();
-    setError("");
-    try {
-      stream.current ??= await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
-      const rec = new MediaRecorder(stream.current, { mimeType: "audio/webm" });
-      chunks.current = [];
-      rec.ondataavailable = (e) => chunks.current.push(e.data);
-      rec.onstop = () => {
-        if (heldFor.current < MIN_HOLD_MS) {
-          setError("बटन दबाकर रखें, फिर बोलें।");
-          return;
-        }
-        const form = new FormData();
-        form.append("audio", new Blob(chunks.current, { type: "audio/webm" }), "clip.webm");
-        void send(form);
-      };
-      rec.start();
-      pressedAt.current = performance.now();
-      recorder.current = rec;
-      setRecording(true);
-    } catch {
-      setError("Microphone not available. Use the text box.");
-    }
-  }, [send, stop]);
-
-  const release = useCallback(() => {
-    // A short tail, so the last word isn't cut off when the button comes up.
+  const finish = useCallback(() => {
     const rec = recorder.current;
-    heldFor.current = performance.now() - pressedAt.current;
+    clearTimeout(limit.current);
+    locked.current = false;
+    // A short tail, so the last word isn't cut off when the button comes up.
     if (rec?.state === "recording") setTimeout(() => rec.stop(), RELEASE_TAIL_MS);
     recorder.current = null;
     setRecording(false);
   }, []);
 
+  const start = useCallback(async () => {
+    // A tap started this recording, so the next tap sends it.
+    if (locked.current) return finish();
+    stop();
+    unlock();
+    setError("");
+    try {
+      if (!navigator.mediaDevices?.getUserMedia || !clipType()) throw new Error("no mic");
+      stream.current ??= await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+      const type = clipType()!;
+      const rec = new MediaRecorder(stream.current, { mimeType: type });
+      chunks.current = [];
+      rec.ondataavailable = (e) => chunks.current.push(e.data);
+      rec.onstop = () => {
+        const form = new FormData();
+        form.append("audio", new Blob(chunks.current, { type: type.split(";")[0]! }), type.includes("mp4") ? "clip.m4a" : "clip.webm");
+        void send(form);
+      };
+      rec.start();
+      pressedAt.current = performance.now();
+      recorder.current = rec;
+      limit.current = setTimeout(finish, MAX_CLIP_MS);
+      setRecording(true);
+    } catch {
+      setError("माइक नहीं चल रहा। नीचे लिखकर पूछें। Mic isn't available here, please type instead.");
+    }
+  }, [finish, send, stop, unlock]);
+
+  const release = useCallback(() => {
+    // Hold to talk, or tap once to start and again to send.
+    if (!recorder.current) return;
+    if (performance.now() - pressedAt.current < TAP_MS) {
+      locked.current = true;
+      return;
+    }
+    if (!locked.current) finish();
+  }, [finish]);
+
   const sendText = useCallback((text: string) => {
     stop();
+    unlock();
     void send(JSON.stringify({ text }), { "Content-Type": "application/json" });
   }, [send, stop]);
 

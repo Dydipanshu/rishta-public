@@ -3,7 +3,7 @@ import type { DayRow, Merchant, Ticket } from "./types.js";
 import { SIM_DAYS, TODAY } from "./types.js";
 import { makeRng, normal, type Rng } from "./rng.js";
 
-const dayRow = (rng: Rng, value: number, failRate: number, ticketSize: number): DayRow => {
+export const dayRow = (rng: Rng, value: number, failRate: number, ticketSize: number): DayRow => {
   const v = Math.max(0, Math.round(value * (1 + 0.12 * normal(rng))));
   const count = Math.max(0, Math.round(v / ticketSize));
   return {

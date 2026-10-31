@@ -80,7 +80,9 @@ await page.waitForTimeout(9000);
 
 await hold(null, 0);
 await page.waitForTimeout(800);
-check((await body()).includes("बटन दबाकर रखें, फिर बोलें"), "an accidental tap gets a hint, not a reply");
+check(await page.getByText("सुन रही हूँ…").first().isVisible(), "a tap keeps listening until the next tap");
+await hold(null, 80);
+await page.waitForTimeout(4000);
 
 await hold(noise());
 await page.waitForTimeout(9000);

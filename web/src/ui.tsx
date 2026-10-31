@@ -56,3 +56,19 @@ export const Skeleton = ({ h = 96 }: { h?: number }) => <div className="skeleton
 export const Empty = ({ title, children }: { title: string; children?: ReactNode }) => (
   <div className="py-6 text-center"><div className="font-semibold text-ink">{title}</div>{children && <div className="mt-0.5 text-sm text-muted">{children}</div>}</div>
 );
+
+const ROLES = [["shop", "Shopkeeper"], ["sales", "Salesperson"], ["manager", "Manager"]] as const;
+const lastShop = () => {
+  try {
+    const id = localStorage.getItem("rishta-shop");
+    return id ? `/?shop=${id}` : "/#shops";
+  } catch {
+    return "/#shops";
+  }
+};
+// The same shops seen from three chairs. Switching keeps everything this visitor has done.
+export const RoleTabs = ({ on }: { on?: (typeof ROLES)[number][0] }) => (
+  <nav aria-label="Switch view" className="grid grid-cols-3 gap-1 rounded-xl bg-idle p-1 text-center text-sm font-semibold">
+    {ROLES.map(([key, label]) => <a key={key} aria-current={on === key ? "page" : undefined} href={key === "shop" ? lastShop() : key === "sales" ? "/sales" : "/demo/today"} className={`rounded-lg px-3 py-1.5 ${on === key ? "bg-white text-ink shadow-sm" : "text-muted"}`}>{label}</a>)}
+  </nav>
+);

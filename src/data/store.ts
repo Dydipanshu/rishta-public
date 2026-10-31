@@ -42,10 +42,36 @@ function fillDays(rows: Row[], get: (id: string) => Merchant | undefined) {
   }
 }
 
-const DAY_SQL = `SELECT p.*, h.offline_hours, h.battery_alerts, h.error_count, s.fee, s.gst_on_fee, s.delay_hours
-  FROM daily_payments p
-  JOIN device_health h ON h.merchant_id = p.merchant_id AND h.day = p.day
-  JOIN settlements s ON s.merchant_id = p.merchant_id AND s.day = p.day`;
+const daySql = (db = "") => `SELECT p.*, h.offline_hours, h.battery_alerts, h.error_count, s.fee, s.gst_on_fee, s.delay_hours
+  FROM ${db}daily_payments p
+  JOIN ${db}device_health h ON h.merchant_id = p.merchant_id AND h.day = p.day
+  JOIN ${db}settlements s ON s.merchant_id = p.merchant_id AND s.day = p.day`;
+
+const DAY_COLUMNS = {
+  payments: ["merchant_id", "day", "count", "value", "count_above_2000", "value_above_2000", "failed_count", "unique_payers", "repeat_share"],
+  health: ["merchant_id", "day", "offline_hours", "battery_alerts", "error_count"],
+  settlements: ["merchant_id", "day", "gross", "fee", "gst_on_fee", "net", "delay_hours"],
+};
+const MERCHANT_COLUMNS = ["id", "name", "first_name", "city", "city_tier", "category", "category_group", "language", "device_type", "plan_id", "monthly_rent", "onboard_day", "fee_category", "consent_profiling", "consent_messages", "opted_out", "holdout", "is_demo", "last_contact_day", "true_cause", "cause_onset", "churn_day", "shard"];
+const merchantRow = (x: Merchant) => [x.id, x.name, x.firstName, x.city, x.cityTier, x.category, x.categoryGroup, x.language, x.deviceType, x.planId, x.monthlyRent, x.onboardDay, x.feeCategory, +x.consentProfiling, +x.consentMessages, +x.optedOut, +x.holdout, +x.isDemo, x.lastContactDay, x.trueCause, x.causeOnset, x.churnDay, shardOf(x.id)];
+const dayRows = (x: Merchant) => ({
+  payments: x.days.map((d, day) => [x.id, day, d.count, d.value, d.countAbove, d.valueAbove, d.failed, d.uniquePayers, d.repeatShare]),
+  health: x.days.map((d, day) => [x.id, day, d.offlineHours, d.batteryAlerts, d.errors]),
+  settlements: x.days.map((d, day) => [x.id, day, d.value, d.fee, d.gst, d.value - d.fee - d.gst, d.delayHours]),
+});
+
+// One shop a visitor made themselves. Reads the same way as every other shop.
+export async function saveShop(sql: Sql, x: Merchant) {
+  const days = dayRows(x);
+  await sql.tx(async (tx) => {
+    await tx.bulk("merchants", MERCHANT_COLUMNS, [merchantRow(x)]);
+    await tx.bulk("consents", ["merchant_id", "kind", "granted", "day"], [[x.id, "profiling", 1, 0], [x.id, "messages", 1, 0]]);
+    await tx.bulk("daily_payments", DAY_COLUMNS.payments, days.payments);
+    await tx.bulk("device_health", DAY_COLUMNS.health, days.health);
+    await tx.bulk("settlements", DAY_COLUMNS.settlements, days.settlements);
+    await tx.bulk("tickets", ["id", "merchant_id", "type", "status", "note", "opened_day", "closed_day"], x.tickets.map((k) => [k.id, x.id, k.type, "open", k.note, k.openedDay, k.closedDay]));
+  });
+}
 
 const toTicket = (t: Row): Ticket => ({ id: t.id, type: t.type, openedDay: t.opened_day, closedDay: t.closed_day, note: t.note });
 
@@ -56,7 +82,7 @@ export async function loadMerchantPage(sql: Sql, lo: number, hi: number, afterId
   const byId = new Map(list.map((m) => [m.id, m]));
   const ids = list.map((m) => m.id);
   const marks = ids.map(() => "?").join(",");
-  fillDays(await sql.all(`${DAY_SQL} WHERE p.merchant_id IN (${marks})`, ids), (id) => byId.get(id));
+  fillDays(await sql.all(`${daySql()} WHERE p.merchant_id IN (${marks})`, ids), (id) => byId.get(id));
   for (const t of await sql.all(`SELECT * FROM tickets WHERE merchant_id IN (${marks})`, ids)) byId.get(t.merchant_id)?.tickets.push(toTicket(t));
   return list;
 }
@@ -65,7 +91,8 @@ export async function loadMerchant(sql: Sql, id: string): Promise<Merchant> {
   const row = await sql.get("SELECT * FROM merchants WHERE id = ?", [id]);
   if (!row) throw new Error(`Unknown merchant ${id}`);
   const m = toMerchant(row);
-  fillDays(await sql.all(`${DAY_SQL} WHERE p.merchant_id = ?`, [id]), () => m);
+  const own = await sql.all(`${daySql()} WHERE p.merchant_id = ?`, [id]);
+  fillDays(own.length || !sql.benchDays ? own : await sql.all(`${daySql("bench.")} WHERE p.merchant_id = ?`, [id]), () => m);
   m.tickets = (await sql.all("SELECT * FROM tickets WHERE merchant_id = ?", [id])).map(toTicket);
   return m;
 }
@@ -74,10 +101,7 @@ export async function saveSim(sql: Sql, sim: SimResult) {
   const merchants: unknown[][] = [], consents: unknown[][] = [], payments: unknown[][] = [], health: unknown[][] = [];
   const settlements: unknown[][] = [], tickets: unknown[][] = [];
   for (const x of sim.merchants) {
-    merchants.push([
-      x.id, x.name, x.firstName, x.city, x.cityTier, x.category, x.categoryGroup, x.language, x.deviceType, x.planId, x.monthlyRent, x.onboardDay,
-      x.feeCategory, +x.consentProfiling, +x.consentMessages, +x.optedOut, +x.holdout, +x.isDemo, x.lastContactDay, x.trueCause, x.causeOnset, x.churnDay, shardOf(x.id),
-    ]);
+    merchants.push(merchantRow(x));
     consents.push([x.id, "profiling", +x.consentProfiling, 0], [x.id, "messages", +x.consentMessages, 0]);
     for (let day = 0; day < SIM_DAYS; day++) {
       const d = x.days[day]!;
@@ -89,11 +113,11 @@ export async function saveSim(sql: Sql, sim: SimResult) {
   }
   await sql.tx(async (tx) => {
     for (const t of ["merchants", "daily_payments", "device_health", "settlements", "tickets", "contact_history", "playbook_stats", "reason_events", "consents"]) await tx.run(`DELETE FROM ${t}`);
-    await tx.bulk("merchants", ["id", "name", "first_name", "city", "city_tier", "category", "category_group", "language", "device_type", "plan_id", "monthly_rent", "onboard_day", "fee_category", "consent_profiling", "consent_messages", "opted_out", "holdout", "is_demo", "last_contact_day", "true_cause", "cause_onset", "churn_day", "shard"], merchants);
+    await tx.bulk("merchants", MERCHANT_COLUMNS, merchants);
     await tx.bulk("consents", ["merchant_id", "kind", "granted", "day"], consents);
-    await tx.bulk("daily_payments", ["merchant_id", "day", "count", "value", "count_above_2000", "value_above_2000", "failed_count", "unique_payers", "repeat_share"], payments);
-    await tx.bulk("device_health", ["merchant_id", "day", "offline_hours", "battery_alerts", "error_count"], health);
-    await tx.bulk("settlements", ["merchant_id", "day", "gross", "fee", "gst_on_fee", "net", "delay_hours"], settlements);
+    await tx.bulk("daily_payments", DAY_COLUMNS.payments, payments);
+    await tx.bulk("device_health", DAY_COLUMNS.health, health);
+    await tx.bulk("settlements", DAY_COLUMNS.settlements, settlements);
     await tx.bulk("tickets", ["id", "merchant_id", "type", "status", "note", "opened_day", "closed_day"], tickets);
     await tx.bulk("contact_history", ["merchant_id", "day", "week", "problem", "approach_id", "true_cause", "segment", "city", "category", "kept"], (sim.contacts as ContactRow[]).map((r) => [r.merchantId, r.day, r.week, r.problem, r.approachId, r.trueCause, r.segment, r.city, r.category, r.kept]));
     await tx.bulk("playbook_stats", ["week", "problem", "approach_id", "share"], (sim.allocations as AllocationRow[]).map((r) => [r.week, r.problem, r.approachId, r.share]));

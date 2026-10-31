@@ -40,7 +40,7 @@ type View = "home" | "qr" | "payments" | "settlement" | "soundbox" | "chat";
 const TITLES = { qr: "मेरा QR", payments: "Payments", settlement: "Settlement", soundbox: "मेरा Soundbox" };
 const TILES = [["qr", "QR", "M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm10 0h2v2h-2v-2Zm4 0h2v6h-6v-2h4v-4Z"], ["payments", "Payments", "M3 6h18v12H3V6Zm0 4h18"], ["settlement", "Settlement", "M4 19V9l8-5 8 5v10H4Zm5 0v-6h6v6"], ["soundbox", "Soundbox", "M7 3h10v18H7V3Zm5 13a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"]] as const;
 
-export default function MerchantPhone({ shopId, tips = [], onTip, free }: { shopId?: string; tips?: string[]; onTip?: boolean; free?: boolean }) {
+export default function MerchantPhone({ shopId, tips = [], onTip, free, bare, suggest = [] }: { shopId?: string; tips?: string[]; onTip?: boolean; free?: boolean; bare?: boolean; suggest?: string[] }) {
   const embedded = !!shopId;
   const [id, setId] = useState(fixedId ?? shopId ?? "M001");
   const [m, setM] = useState<Merchant | null>(null);
@@ -48,7 +48,7 @@ export default function MerchantPhone({ shopId, tips = [], onTip, free }: { shop
   const [lines, setLines] = useState<Line[]>([]);
   const [nudge, setNudge] = useState("");
   const [typed, setTyped] = useState("");
-  const [view, setView] = useState<View>("home");
+  const [view, setView] = useState<View>(bare ? "chat" : "home");
   const [cleared, setCleared] = useState<string | null>(null);
   const conversation = m?.conversation?.id === cleared ? null : m?.conversation;
   const [armed, setArmed] = useState(embedded);
@@ -110,12 +110,12 @@ export default function MerchantPhone({ shopId, tips = [], onTip, free }: { shop
   }, [lines, ptt.thinking, m?.inbox.length]);
 
   if (missing) {
-    return <div className="flex h-full items-center justify-center p-8 text-center"><div><div className="text-xl font-bold text-navy">यह दुकान नहीं मिली</div><div className="text-muted">Shop {id} does not exist.</div></div></div>;
+    return <div className="flex h-full items-center justify-center p-8 text-center"><div><div className="text-xl font-bold text-navy">यह दुकान नहीं मिली</div><div className="text-muted">This shop has expired or doesn't exist.</div><a href="/" className="mt-3 inline-block font-semibold text-paytm-deep">Pick another shop</a></div></div>;
   }
 
   const ended = !!conversation?.ended;
   const busy = ptt.thinking || ended;
-  const status = ended && !ptt.speaking ? "बातचीत पूरी हुई" : ptt.recording ? "सुन रही हूँ…" : ptt.thinking ? "देख रही हूँ…" : ptt.speaking ? "बोल रही हूँ…" : nudge || lines.length ? "बटन दबाकर रखें और बोलें" : "सब ठीक चल रहा है";
+  const status = ended && !ptt.speaking ? "बातचीत पूरी हुई" : ptt.recording ? "सुन रही हूँ…" : ptt.thinking ? "देख रही हूँ…" : ptt.speaking ? "बोल रही हूँ…" : nudge || lines.length ? "Mic दबाकर बोलें" : "सब ठीक चल रहा है";
   const talking = nudge !== "" || lines.length > 0;
   const heard = lines.filter((l) => l.role === "merchant").map((l) => l.text);
   // Suggestions stop as soon as the merchant goes off script.
@@ -124,7 +124,7 @@ export default function MerchantPhone({ shopId, tips = [], onTip, free }: { shop
   const hold = {
     onPointerDown: () => { if (!busy) void ptt.start(); },
     onPointerUp: ptt.release,
-    onPointerLeave: ptt.release,
+    onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
     onKeyDown: (e: React.KeyboardEvent) => { if (e.key === " " && !e.repeat && !busy) { e.preventDefault(); void ptt.start(); } },
     onKeyUp: (e: React.KeyboardEvent) => { if (e.key === " ") ptt.release(); },
     disabled: busy,
@@ -200,7 +200,7 @@ export default function MerchantPhone({ shopId, tips = [], onTip, free }: { shop
 
           {view === "chat" && <>
             <div ref={end} className="noscroll min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-3" aria-live="polite">
-              {lines.length === 0 && !nudge && <div className="px-6 py-10 text-center text-muted"><div className="font-semibold text-ink">नमस्ते</div><div className="mt-1 text-sm">बटन दबाकर रखें और बोलें, या नीचे लिखें।</div></div>}
+              {lines.length === 0 && !nudge && <div className="flex min-h-full flex-col justify-end px-1 pb-1 text-center text-muted"><div className="text-lg font-semibold text-ink">नमस्ते{m ? `, ${m.name}` : ""}</div><div className="mt-1 text-sm">Mic दबाकर बोलें या नीचे लिखें। Hindi या English, जैसे चाहें।</div>{suggest.length > 0 && <div className="mt-5 space-y-2">{suggest.map((t) => <button key={t} disabled={busy} onClick={() => ptt.sendText(t)} className="block w-full rounded-xl border border-line bg-white px-3 py-2.5 text-left text-[15px] text-ink active:bg-paper">{t}</button>)}</div>}</div>}
               {nudge && lines.length === 0 && <div className="rise max-w-[85%] rounded-2xl rounded-tl-sm bg-white px-3 py-2 text-[15px] shadow-sm">{nudge}</div>}
               {lines.map((l, i) => <div key={i} className={`rise max-w-[85%] rounded-2xl px-3 py-2 text-[15px] ${l.role === "merchant" ? "ml-auto rounded-tr-sm bg-navy text-white" : "rounded-tl-sm bg-white shadow-sm"}`}>{l.text}</div>)}
               {ptt.thinking && <div className="w-fit rounded-2xl bg-white px-3 py-2 text-muted shadow-sm">…</div>}
@@ -212,14 +212,14 @@ export default function MerchantPhone({ shopId, tips = [], onTip, free }: { shop
               {!ended && (
                 <div className="flex items-center gap-2">
                   <form className="flex min-w-0 flex-1" onSubmit={(e) => { e.preventDefault(); if (typed.trim() && !busy) { ptt.sendText(typed); setTyped(""); } }}>
-                    <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="यहाँ लिखें" aria-label="Type your message" className="min-w-0 flex-1 rounded-full bg-paper px-4 py-2.5 outline-none" />
+                    <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="यहाँ लिखें" aria-label="Type your message" className="min-w-0 flex-1 rounded-full bg-paper px-4 py-2.5 text-base outline-none" />
                     {typed.trim() && <button disabled={busy} aria-label="Send" className="ml-2 rounded-full bg-navy px-4 font-semibold text-white disabled:opacity-50">भेजें</button>}
                   </form>
                   {!typed.trim() && <button {...hold} aria-label="Hold to talk" className={`grid h-11 w-11 shrink-0 touch-none select-none place-items-center rounded-full transition-transform ${ptt.recording ? "scale-125 animate-pulse bg-callback text-white" : busy ? "bg-idle text-muted" : "bg-paytm text-navy"}`}><Mic className="h-5 w-5" /></button>}
                 </div>
               )}
               {!ended && heard.length > 0 && <button className="mt-1 w-full text-center text-xs text-muted underline" disabled={busy} onClick={() => void fetch(`/api/end/${id}`, { method: "POST" }).then(load)}>बात खत्म करें</button>}
-              {ptt.recording && <div className="mt-1 text-center text-xs font-semibold text-callback">सुन रही हूँ, छोड़ने पर भेज दूँगी</div>}
+              {ptt.recording && <div className="mt-1 text-center text-xs font-semibold text-callback">सुन रही हूँ… छोड़ें या दोबारा दबाएँ, भेज दूँगी</div>}
             </div>
           </>}
         </div>
@@ -234,6 +234,7 @@ export default function MerchantPhone({ shopId, tips = [], onTip, free }: { shop
   );
 
   if (fixedId) return <div className="h-dvh w-full">{app}</div>;
+  if (bare) return <div className="h-full w-full">{app}</div>;
 
   return (
     <div className="flex h-full items-center justify-center">

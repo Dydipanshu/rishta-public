@@ -10,6 +10,10 @@ import { Conversation, helloLine, openingLine, type AgentDeps } from "../agent/b
 import { TOPICS } from "../contracts/events.js";
 import { resetLive } from "../data/reset.js";
 import { audit } from "../data/sql.js";
+import { saveShop } from "../data/store.js";
+import { VISITOR_ID, newVisitorId, visitorScope, type VisitorPool } from "../data/visitors.js";
+import { planShop } from "../engine/dailyRun.js";
+import { CustomShop, buildCustomShop } from "../sim/customShop.js";
 import { KEEP_WINDOW_DAYS, TODAY } from "../sim/types.js";
 import { Brief, Outcome } from "../engine/brief.js";
 import { followUpBrief, inboundBrief, pendingFollowUp } from "../engine/inbound.js";
@@ -35,7 +39,16 @@ export interface AppDeps extends AgentDeps {
   translate: ReturnType<typeof makeTranslate>;
   tts: ReturnType<typeof makeTts>;
   kickRelay: () => void;
+  visitors?: VisitorPool | undefined;
 }
+
+const COOKIE = "rishta_visitor";
+const cookieOf = (req: FastifyRequest) => new RegExp(`(?:^|; )${COOKIE}=([a-f0-9]{32})`).exec(req.headers.cookie ?? "")?.[1];
+// How many brand-new visitors one network address may start in 10 minutes. A venue shares one address, so this is generous.
+const NEW_VISITORS_PER_IP = 400;
+const MAX_OWN_SHOPS = 5;
+const BUSY = "अभी बहुत लोग Rishta आज़मा रहे हैं। थोड़ी देर बाद फिर कोशिश करें। Lots of people are trying Rishta right now, please try again shortly.";
+const OVER = "इस demo की आपकी सीमा पूरी हो गई। You've reached the limit for this demo session.";
 
 const ANNOUNCEMENT = "Paytm पर पाँच सौ रुपये प्राप्त हुए।";
 const FILLERS = ["जी, एक second।", "जी, देखती हूँ।"];
@@ -49,21 +62,65 @@ const TalkText = z.object({ text: z.string().trim().min(1) });
 const SessionRequest = z.object({ merchantId: z.string(), ttlSec: z.number().int().max(3600).default(900) });
 
 export async function buildApp(d: AppDeps) {
-  const { s, sql, core, bus, tts, stt, translate } = d;
+  const { s, sql, core, bus, tts, stt, translate, visitors } = d;
   const production = s.APP_ENV === "production";
-  const app = Fastify({ logger: { level: s.LOG_LEVEL, redact: ["req.headers.authorization"] }, forceCloseConnections: "idle" });
+  const app = Fastify({ logger: { level: s.LOG_LEVEL, redact: ["req.headers.authorization", "req.headers.cookie"] }, forceCloseConnections: "idle", trustProxy: !!visitors });
   await app.register(fastifyMultipart, { limits: { fileSize: 5_000_000 } });
-  if (production) await app.register(fastifyRateLimit, { global: false });
+  if (production || visitors) await app.register(fastifyRateLimit, { global: false, keyGenerator: (req) => cookieOf(req) ?? req.ip });
+
+  // Runs after the body is read: each request then sees only its own visitor's data.
+  if (visitors) {
+    const fresh = new Map<string, { n: number; since: number }>();
+    app.addHook("preHandler", (req, reply, done) => {
+      if (!/^\/(api|v1)\//.test(req.url) || req.url.startsWith("/api/tts/")) return done();
+      let id = cookieOf(req);
+      if (!id || !visitors.knows(id)) {
+        const seen = fresh.get(req.ip);
+        const count = !seen || Date.now() - seen.since > 600_000 ? { n: 1, since: Date.now() } : { n: seen.n + 1, since: seen.since };
+        fresh.set(req.ip, count);
+        if (count.n > NEW_VISITORS_PER_IP) return void reply.code(429).send({ error: BUSY });
+        if (!id || !VISITOR_ID.test(id)) id = newVisitorId();
+        reply.raw.setHeader("Set-Cookie", `${COOKIE}=${id}; Path=/; Max-Age=86400; HttpOnly; SameSite=Lax${req.protocol === "https" ? "; Secure" : ""}`);
+      }
+      visitors.enter(id).then((v) => visitorScope.run(v, () => done()), done);
+    });
+  }
+
+  // Hard limits on what the public site can spend.
+  let today = "";
+  let turnsToday = 0;
+  let activeTurns = 0;
+  const overLimit = (voice: boolean) => {
+    const v = visitorScope.getStore();
+    if (!v) return null;
+    const date = new Date().toISOString().slice(0, 10);
+    if (date !== today) [today, turnsToday] = [date, 0];
+    if (turnsToday >= s.SITE_MAX_TURNS_PER_DAY) return BUSY;
+    if (v.turns >= s.VISITOR_MAX_TURNS || (voice && v.voiceTurns >= s.VISITOR_MAX_VOICE_TURNS)) return OVER;
+    turnsToday++;
+    v.turns++;
+    if (voice) v.voiceTurns++;
+    return null;
+  };
+  const turnSlot = async () => {
+    for (let waited = 0; activeTurns >= s.MAX_CONCURRENT_TURNS; waited += 250) {
+      if (waited > 25_000) return false;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    activeTurns++;
+    return true;
+  };
 
   const say = (text: string) => ({ text, audio: tts.prepare(text) });
   const ui = (event: Record<string, unknown>) => bus.publish(TOPICS.ui, String(event.merchantId ?? "all"), JSON.stringify(event));
 
   // Live screens: any server can publish, every server forwards to its own browsers.
-  const screens = new Set<FastifyReply>();
+  const screens = new Set<{ reply: FastifyReply; who: string | undefined }>();
   await bus.subscribe({
     topics: [TOPICS.ui],
     handler: async (_topic, value) => {
-      for (const c of screens) c.raw.write(`data: ${value}\n\n`);
+      const who = visitorScope.getStore()?.id;
+      for (const c of screens) if (c.who === who) c.reply.raw.write(`data: ${value}\n\n`);
     },
   });
 
@@ -112,14 +169,21 @@ export async function buildApp(d: AppDeps) {
       return reply.code(503).send({ ok: false });
     }
   });
-  app.get("/metrics", { preHandler: serviceAuth }, async (_req, reply) => reply.type(registry.contentType).send(await registry.metrics()));
+  app.get("/api/site", () => ({ public: !!visitors }));
+  if (!visitors) app.get("/metrics", { preHandler: serviceAuth }, async (_req, reply) => reply.type(registry.contentType).send(await registry.metrics()));
 
   app.get("/api/events", { preHandler: serviceAuth }, (_req, reply) => {
     reply.hijack();
-    reply.raw.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+    reply.raw.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive", "X-Accel-Buffering": "no" });
     reply.raw.write(": connected\n\n");
-    screens.add(reply);
-    reply.raw.on("close", () => screens.delete(reply));
+    const screen = { reply, who: visitorScope.getStore()?.id };
+    screens.add(screen);
+    // Hosts cut idle connections, so a quiet screen still sends a heartbeat.
+    const beat = setInterval(() => reply.raw.write(": beat\n\n"), 20_000);
+    reply.raw.on("close", () => {
+      clearInterval(beat);
+      screens.delete(screen);
+    });
   });
   app.get("/api/console", { preHandler: serviceAuth }, () => consoleView(sql, core));
   app.get("/api/decisions", { preHandler: serviceAuth }, () => decisionsView(sql));
@@ -128,6 +192,21 @@ export async function buildApp(d: AppDeps) {
   app.get<{ Params: { id: string } }>("/api/merchant/:id", { preHandler: merchantAuth }, async (req, reply) => {
     if (!(await sql.get("SELECT 1 AS ok FROM merchants WHERE id = ?", [req.params.id]))) return reply.code(404).send({ error: "No such shop" });
     return merchantView(sql, core, req.params.id);
+  });
+
+  // A shop the visitor makes up. Rishta decides about it exactly as it would for any other.
+  app.post("/api/shops", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (req, reply) => {
+    const parsed = CustomShop.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: "Please check the shop details." });
+    const v = visitorScope.getStore();
+    if (v && v.shops >= MAX_OWN_SHOPS) return reply.code(429).send({ error: OVER });
+    const n = Number((await sql.get<{ n: number }>("SELECT COUNT(*) AS n FROM merchants WHERE id LIKE 'MY%'"))?.n ?? 0) + 1;
+    const id = `MY${String(n).padStart(3, "0")}`;
+    await saveShop(sql, buildCustomShop(id, parsed.data, s.DEMO_SEED));
+    await planShop(sql, core, s.DEMO_SEED, id);
+    if (v) v.shops++;
+    await ui({ type: "changed", merchantId: id });
+    return { id };
   });
 
   app.get<{ Params: { id: string; screen: string } }>("/api/phone-line/:id/:screen", { preHandler: merchantAuth }, async (req, reply) => {
@@ -172,6 +251,17 @@ export async function buildApp(d: AppDeps) {
 
   // One merchant turn. Replies as newline-delimited JSON so speech can start early.
   app.post<{ Params: { id: string } }>("/api/talk/:id", { preHandler: merchantAuth, config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (req, reply) => {
+    const limit = overLimit(req.isMultipart());
+    if (limit) return reply.code(429).send({ error: limit });
+    if (!(await turnSlot())) return reply.code(503).send({ error: BUSY });
+    try {
+      return await talk(req, reply);
+    } finally {
+      activeTurns--;
+    }
+  });
+
+  async function talk(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
     const { id } = req.params;
     const started = performance.now();
     let conv = await Conversation.resume(d, id);
@@ -201,7 +291,7 @@ export async function buildApp(d: AppDeps) {
     }
 
     reply.hijack();
-    reply.raw.writeHead(200, { "Content-Type": "application/x-ndjson", "Cache-Control": "no-store" });
+    reply.raw.writeHead(200, { "Content-Type": "application/x-ndjson", "Cache-Control": "no-store", "X-Accel-Buffering": "no" });
     const send = (o: unknown) => reply.raw.write(`${JSON.stringify(o)}\n`);
     let filler: NodeJS.Timeout | undefined;
 
@@ -278,7 +368,7 @@ export async function buildApp(d: AppDeps) {
       }
     }
     reply.raw.end();
-  });
+  }
 
   // Ends a conversation the merchant simply walked away from.
   app.post<{ Params: { id: string } }>("/api/end/:id", { preHandler: merchantAuth }, async (req) => {
@@ -373,7 +463,7 @@ export async function buildApp(d: AppDeps) {
   }
 
   const closeScreens = () => {
-    for (const c of screens) c.raw.end();
+    for (const c of screens) c.reply.raw.end();
   };
 
   return { app, prewarm, sweep, closeScreens };
