@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 const PATHS: Record<string, string> = {
   overview: "M4 13h6V4H4v9Zm0 7h6v-4H4v4Zm10 0h6v-9h-6v9Zm0-16v4h6V4h-6Z",
@@ -56,6 +56,19 @@ export const Skeleton = ({ h = 96 }: { h?: number }) => <div className="skeleton
 export const Empty = ({ title, children }: { title: string; children?: ReactNode }) => (
   <div className="py-6 text-center"><div className="font-semibold text-ink">{title}</div>{children && <div className="mt-0.5 text-sm text-muted">{children}</div>}</div>
 );
+
+// True below the laptop layout. The phone gets its own screens, not a squeezed desktop.
+export const useNarrow = (width = 1023) => {
+  const media = `(max-width: ${width}px)`;
+  const [narrow, setNarrow] = useState(() => matchMedia(media).matches);
+  useEffect(() => {
+    const q = matchMedia(media);
+    const on = () => setNarrow(q.matches);
+    q.addEventListener("change", on);
+    return () => q.removeEventListener("change", on);
+  }, [media]);
+  return narrow;
+};
 
 const ROLES = [["shop", "Shopkeeper"], ["sales", "Salesperson"], ["manager", "Manager"]] as const;
 const lastShop = () => {

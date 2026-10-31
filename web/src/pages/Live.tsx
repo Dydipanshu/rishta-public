@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useEvents } from "../hooks/useEvents";
-import { Empty, Icon, RoleTabs, Skeleton } from "../ui";
+import { Empty, Icon, RoleTabs, Skeleton, useNarrow } from "../ui";
 import MerchantPhone from "./MerchantPhone";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -59,17 +59,6 @@ function Picker({ selected, pick, wide }: { selected: string; pick: (id: string)
     </aside>
   );
 }
-
-const useNarrow = () => {
-  const [narrow, setNarrow] = useState(() => matchMedia("(max-width: 1023px)").matches);
-  useEffect(() => {
-    const q = matchMedia("(max-width: 1023px)");
-    const on = () => setNarrow(q.matches);
-    q.addEventListener("change", on);
-    return () => q.removeEventListener("change", on);
-  }, []);
-  return narrow;
-};
 
 function Sheet({ title, close, children }: { title: string; close: () => void; children: React.ReactNode }) {
   return (

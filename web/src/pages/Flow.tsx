@@ -1,7 +1,7 @@
 import qrcode from "qrcode-generator";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEvents } from "../hooks/useEvents";
-import { Card, Empty, Icon, PageHead, Pill, RoleTabs, SimTag, Skeleton, Stat, type Tone } from "../ui";
+import { Card, Empty, Icon, PageHead, Pill, RoleTabs, SimTag, Skeleton, Stat, useNarrow, type Tone } from "../ui";
 import MerchantPhone from "./MerchantPhone";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -170,8 +170,16 @@ function Weeks({ approaches }: { approaches: any[] }) {
 function Ledger({ rows }: { rows: any[] }) {
   return (
     <Card title="What 100 contacts earn Paytm in a year" action={<SimTag />}>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[34rem] text-left text-sm">
+      <ul className="space-y-3 sm:hidden">
+        {rows.map((r) => (
+          <li key={r.problem} className="border-b border-line pb-3 last:border-0 last:pb-0">
+            <div className="flex items-baseline justify-between gap-2"><span className="font-semibold">{r.label}</span>{r.proven ? <span className="num text-lg font-bold text-kept">₹{num(r.best)}</span> : <Pill>Not proven yet</Pill>}</div>
+            <div className="num text-sm text-muted">{r.extraKeptPer100} extra shops kept · each worth ₹{num(r.shopWorthYear)} a year · cost ₹{num(r.costPer100)}{r.proven ? ` · range ₹${num(r.low)} to ₹${num(r.high)}` : ""}</div>
+          </li>
+        ))}
+      </ul>
+      <div className="hidden sm:block">
+        <table className="w-full text-left text-sm">
           <thead className="text-muted"><tr><th className="pb-2 font-medium">Problem</th><th className="pb-2 text-right font-medium">Extra shops kept</th><th className="pb-2 text-right font-medium">One shop's yearly value</th><th className="pb-2 text-right font-medium">Cost</th><th className="pb-2 text-right font-medium">Net to Paytm</th></tr></thead>
           <tbody className="num">{rows.map((r) => <tr key={r.problem} className="border-t border-line"><td className="py-2 font-semibold">{r.label}</td><td className="text-right">{r.extraKeptPer100}</td><td className="text-right">₹{num(r.shopWorthYear)}</td><td className="text-right">₹{num(r.costPer100)}</td><td className="text-right">{r.proven ? <><span className="font-semibold text-kept">₹{num(r.best)}</span><div className="text-xs text-muted">₹{num(r.low)} to ₹{num(r.high)}</div></> : <Pill>Not proven yet</Pill>}</td></tr>)}</tbody>
         </table>
@@ -376,14 +384,14 @@ function Team({ v, selected }: { v: View; selected: string }) {
           {v.needsHuman.length === 0 && <Empty title="Nobody is waiting" />}
           {v.needsHuman.map((h: any) => <div key={`${h.merchant_id}${h.reason}`} className="border-b border-line py-2 first:pt-0 last:border-0"><div className="flex items-center gap-2 font-semibold">{h.urgent && <Pill tone="bad">Urgent</Pill>}{h.name}</div><div className="line-clamp-3 text-sm text-muted">{h.summary}</div></div>)}
         </Card>
-        <Card title="Visits today" action={<a href="/sales" target="_blank" rel="noreferrer" className="text-sm font-medium text-paytm-deep">Sales app</a>}>
+        <Card title="Visits today" action={<a href="/sales" className="text-sm font-medium text-paytm-deep">Sales app</a>}>
           {v.visits.slice(0, 4).map((x: any) => <div key={x.merchantId} className="border-b border-line py-2 first:pt-0 last:border-0"><div className="font-semibold">{x.name}, {x.city}</div><div className="text-sm text-muted">{x.why}</div></div>)}
         </Card>
         <div className="space-y-4">
           <Card title="Warm leads">
             {v.leads.length === 0 ? <Empty title="None yet">A solved shop with a good record is asked once. A person does the rest.</Empty> : v.leads.map((l: any) => <div key={l.merchantId} className="rise border-b border-line py-2 first:pt-0 last:border-0"><div className="font-semibold">{l.name}, {l.city}</div><div className="text-sm text-muted">Agreed to hear about a business loan · est. ₹{num(l.valueInr)} a year</div></div>)}
           </Card>
-          <Card title="Open on a phone">
+          <Card title="Open on a phone" className="hidden lg:block">
             <div className="flex gap-4">
               <Qr url={`${window.location.origin}/phone/${selected}`} label="Shop app" />
               <Qr url={`${window.location.origin}/sales`} label="Sales app" />
@@ -396,7 +404,7 @@ function Team({ v, selected }: { v: View; selected: string }) {
 }
 
 const STEPS = [
-  ["/today", "Overview"], ["/decisions", "Decisions"], ["/shop", "One shop"], ["/talk", "Talk"], ["/result", "Result"], ["/proof", "Proof"], ["/loans", "Loans"], ["/why", "Why shops leave"], ["/team", "Team"],
+  ["/today", "Overview"], ["/decisions", "Decisions"], ["/shop", "One shop"], ["/talk", "Talk"], ["/result", "Result"], ["/proof", "Proof"], ["/loans", "Loans"], ["/why", "Why shops leave"], ["/team", "Team"], ["/guardrails", "Guardrails"],
 ] as const;
 
 const NAV: [string, string, string][] = [["/today", "Overview", "overview"], ["/decisions", "Decisions", "list"], ["/shop", "Shop", "shop"], ["/talk", "Conversation", "talk"], ["/proof", "Proof", "proof"], ["/loans", "Loans", "proof"], ["/why", "Why shops leave", "why"], ["/team", "Team", "team"], ["/guardrails", "Guardrails", "shield"]];
@@ -422,7 +430,7 @@ function Guardrails({ v }: { v: View }) {
   return (
     <div className="space-y-4">
       <PageHead eyebrow="Enforced by code, not by asking the AI nicely" title="What Rishta can never do." sub="Each rule below runs outside the model, so a clever prompt can't talk its way past it." />
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
         <Stat label="Sentences blocked before speaking" value={g.blocked} />
         <Stat label="Fraud reports escalated" value={g.fraud} />
         <Stat label="Actions in the audit log" value={num(g.logged)} hint="Append-only" />
@@ -445,15 +453,15 @@ const SCRIPTS: Record<string, string[]> = {
 function Welcome({ start }: { start: () => void }) {
   return (
     <div className="flex h-full flex-col overflow-y-auto bg-white">
-      <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col justify-center px-6 py-8">
-        <div className="flex items-center gap-2 text-lg font-bold text-ink"><Logo />Rishta</div>
+      <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col justify-center px-4 py-6 sm:px-6 sm:py-8">
+        <a href="/" className="flex w-fit items-center gap-2 text-lg font-bold text-ink"><Logo />Rishta</a>
         <div className="mt-6 grid items-center gap-8 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
           <div>
-            <h1 className="text-[2.6rem] font-bold leading-[1.08] text-ink md:text-[3.2rem]">A relationship manager for every Paytm shop.</h1>
-            <p className="mt-4 text-xl text-muted">Paytm can't give 1.64 crore shops a person who knows them. Rishta knows each one, fixes what's wrong, comes back to check, and proves in rupees what worked.</p>
+            <h1 className="text-[2.1rem] font-extrabold leading-[1.1] text-ink md:text-[3.2rem]">A relationship manager for every Paytm shop.</h1>
+            <p className="mt-4 text-lg leading-snug text-muted md:text-xl">Paytm can't give 1.64 crore shops a person who knows them. Rishta knows each one, fixes what's wrong, comes back to check, and proves in rupees what worked.</p>
             <div className="mt-7 flex flex-wrap items-center gap-4">
               <button onClick={start} className="btn-primary px-7 py-3.5 text-lg">Start</button>
-              <span className="text-muted">3 minute walkthrough. Allow the microphone when asked.</span>
+              <span className="text-muted">3 minutes. You don't need anyone to guide you: each step tells you what to do, and you get to play the shopkeeper.</span>
             </div>
           </div>
           <div className="card bg-paper p-4" aria-hidden>
@@ -493,7 +501,7 @@ function Today({ v, pick, open }: { v: View; pick: (g: Group) => void; open: (id
       </div>
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.7fr)_minmax(280px,1fr)]">
         <Card title="Every shop, tonight's decision">
-          <div className="mx-auto max-w-[calc((100dvh-420px)*2)]"><ShopMap plan={p} active={hover && hover !== "idle" ? hover : null} onHover={setHover} onPick={pick} /></div>
+          <div className="mx-auto lg:max-w-[calc((100dvh-420px)*2)]"><ShopMap plan={p} active={hover && hover !== "idle" ? hover : null} onHover={setHover} onPick={pick} /></div>
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
             {(Object.keys(GROUPS) as Group[]).map((g) => <button key={g} onClick={() => pick(g)} onMouseEnter={() => setHover(g)} onMouseLeave={() => setHover(null)} className="flex items-center gap-1.5 text-sm hover:text-paytm-deep"><span className="h-2.5 w-2.5 rounded-full" style={{ background: GROUPS[g].color }} />{GROUPS[g].label} <b className="num">{counts[g]}</b></button>)}
           </div>
@@ -522,12 +530,12 @@ function Decisions({ v, list, tab, setTab, open }: { v: View; list: any; tab: Gr
   const learned = left.filter((l: any) => l.kind !== "rule").length;
   const check = p.checks?.find((c: any) => c.skip);
   return (
-    <div className="flex h-full min-h-[28rem] flex-col">
+    <div className="flex flex-col md:h-full md:min-h-[28rem]">
       <PageHead title={tab === "left" ? `${p.leftAlone} shops left alone on purpose.` : tab === "handled" ? `Rishta handles ${p.handledByRishta} shops itself.` : tab === "visit" ? `${p.salespersonVisits} shops are worth a salesperson's time.` : `${p.humanCallbacks} shops need a person to call.`} sub={tab === "left" && check ? `${left.length - learned} by rule. ${learned} because contact doesn't pay: ${pct(check.contactedKeep)} of contacted shops stayed in one group, ${pct(check.holdoutKeep)} when left alone (simulated).` : "Press any shop to see why it got this decision."} />
       <div className="mb-3 flex flex-wrap gap-1.5" role="tablist" aria-label="Decision">
         {(Object.keys(GROUPS) as Group[]).map((g) => <button key={g} role="tab" aria-selected={g === tab} onClick={() => setTab(g)} className={`seg ${g === tab ? "seg-on" : ""}`}>{GROUPS[g].label} <span className="num opacity-70">{counts[g]}</span></button>)}
       </div>
-      <div className="card min-h-0 flex-1 overflow-y-auto">
+      <div className="card min-h-0 flex-1 md:overflow-y-auto">
         {!list && <div className="space-y-2 p-4"><Skeleton h={36} /><Skeleton h={36} /><Skeleton h={36} /></div>}
         {tab === "left"
           ? left.map((l: any) => (
@@ -635,9 +643,21 @@ function LivePanel({ shop }: { shop: any }) {
 }
 
 function Talk({ shop, id }: { shop: any; id: string }) {
+  const narrow = useNarrow();
+  const tips = shop.openPromises?.length ? ["हाँ, replacement आ गई, अब सब ठीक है", "नहीं, अभी तक कुछ नहीं हुआ"] : shop.outcome ? [] : SCRIPTS[id] ?? [];
+  if (narrow) {
+    const did = (shop.live?.actions ?? []).filter((a: string) => a !== "recordOutcome").map((a: string) => ACTIONS[a] ?? a);
+    const checked = shop.live?.numbersChecked ?? 0;
+    return (
+      <div className="flex h-full flex-col">
+        <div className="min-h-0 flex-1"><MerchantPhone shopId={id} tips={tips} onTip bare /></div>
+        <div className="flex items-center gap-2 border-t border-line bg-white px-3 py-1.5 text-sm"><span className="live-dot shrink-0" /><span className="min-w-0 truncate text-muted">{did.length || checked ? [checked ? `${checked} numbers checked` : "", did.at(-1) ?? ""].filter(Boolean).join(" · ") : "Rishta is watching this conversation"}</span></div>
+      </div>
+    );
+  }
   return (
     <div className="flex h-full items-center justify-center gap-10">
-      <MerchantPhone shopId={id} tips={shop.openPromises?.length ? ["हाँ, replacement आ गई, अब सब ठीक है", "नहीं, अभी तक कुछ नहीं हुआ"] : shop.outcome ? [] : SCRIPTS[id] ?? []} onTip />
+      <MerchantPhone shopId={id} tips={tips} onTip />
       <div className="hidden lg:block"><LivePanel shop={shop} /></div>
     </div>
   );
@@ -764,7 +784,7 @@ export default function Flow() {
   };
   const jump = async () => setSettled((await (await fetch("/api/demo/fast-forward", { method: "POST" })).json()).settled);
 
-  if (path === "/" || (path !== "/guardrails" && !STEPS.some(([p]) => p === path))) return <Welcome start={() => void begin()} />;
+  if (path === "/" || !STEPS.some(([p]) => p === path)) return <Welcome start={() => void begin()} />;
   const index = STEPS.findIndex(([p]) => p === path);
   const talkable = !!item?.brief && ["soundbox", "app"].includes(item.brief.channel);
   const finished = !!item?.outcome;
@@ -801,7 +821,7 @@ export default function Flow() {
     : null;
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-dvh">
       <nav aria-label="Main" className="hidden w-56 shrink-0 flex-col border-r border-line bg-white md:flex">
         <button onClick={() => go("/")} className="flex items-center gap-2 px-4 py-4 text-lg font-bold text-ink"><Logo />Rishta</button>
         <ul className="flex-1 space-y-0.5 px-2">
@@ -818,14 +838,21 @@ export default function Flow() {
         </div>
       </nav>
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="border-b border-line bg-white px-2 py-1.5 md:hidden"><RoleTabs on="manager" /></div>
-        <header className="flex items-center gap-4 border-b border-line bg-white px-4 py-2 md:px-6">
-          <button onClick={() => go("/")} className="flex items-center gap-2 font-bold md:hidden"><Logo />Rishta</button>
-          <div className="min-w-0 flex-1 truncate text-sm text-muted md:hidden">Step {index + 1} of {STEPS.length}</div>
+        {path !== "/talk" && <div className="border-b border-line bg-white px-2 py-1.5 md:hidden"><RoleTabs on="manager" /></div>}
+        <header className="flex items-center gap-3 border-b border-line bg-white px-4 py-2 md:gap-4 md:px-6">
+          <a href="/" aria-label="Home" className="md:hidden"><Logo /></a>
+          <label className="relative min-w-0 flex-1 text-sm font-semibold text-ink md:hidden">
+            <span className="flex items-center gap-1"><span className="truncate">Step {index + 1} of {STEPS.length} · {STEPS[index]![1]}</span><svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-muted" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m6 9 6 6 6-6" /></svg></span>
+            <select aria-label="Jump to a step" value={path} onChange={(e) => { const to = e.target.value; go(["/shop", "/talk", "/result"].includes(to) ? withShop(to) : to); }} className="absolute inset-0 w-full opacity-0">
+              {STEPS.map(([p, label], i) => <option key={p} value={p}>{i + 1}. {label}</option>)}
+            </select>
+          </label>
           <div className="hidden flex-1 items-center gap-2 text-sm text-muted md:flex"><span className="live-dot" />Tonight's run complete · {v ? num(v.plan.checked) : "–"} shops</div>
           <Search list={list} open={open} />
         </header>
-        <main key={path} className="rise min-h-0 flex-1 overflow-y-auto bg-paper px-4 py-5 md:px-6">
+        <div className="h-1 bg-idle md:hidden" aria-hidden><div className="h-full bg-paytm transition-[width]" style={{ width: `${((index + 1) / STEPS.length) * 100}%` }} /></div>
+        <p className="border-b border-line bg-paytm/10 px-4 py-2 text-[0.95rem] font-medium leading-snug text-navy md:hidden">{error ? <span className="text-callback">{error}</span> : status}</p>
+        <main key={path} className={`rise min-h-0 flex-1 bg-paper ${path === "/talk" ? "overflow-hidden md:overflow-y-auto md:px-6 md:py-5" : "overflow-y-auto px-4 py-5 md:px-6"}`}>
           <div className="mx-auto h-full max-w-6xl">
             {!v && <div className="grid gap-3 md:grid-cols-4">{[1, 2, 3, 4].map((i) => <Skeleton key={i} />)}<div className="md:col-span-4"><Skeleton h={320} /></div></div>}
             {v && <>
@@ -845,12 +872,12 @@ export default function Flow() {
             </>}
           </div>
         </main>
-        <footer className="flex flex-wrap items-center gap-3 border-t border-line bg-white px-4 py-2.5 md:px-6">
+        <footer className="flex flex-wrap items-center gap-2 border-t border-line bg-white px-4 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:gap-3 md:px-6 md:py-2.5">
           <button onClick={() => history.back()} aria-label="Back" className="btn-quiet"><Icon name="back" size={16} /></button>
           <ol className="hidden gap-1 md:flex" aria-label="Progress">{STEPS.map(([p, label], i) => <li key={p} aria-current={i === index ? "step" : undefined} title={label} className={`h-1.5 w-6 rounded-full ${i < index ? "bg-paytm-deep" : i === index ? "bg-paytm" : "bg-idle"}`} />)}</ol>
           <p role="status" className="hidden min-w-0 flex-1 text-[0.95rem] text-ink md:block">{error ? <span className="text-callback">{error}</span> : status}</p>
           {next
-            ? <button onClick={next.run} disabled={next.off} className={next.off ? "btn-off" : "btn-primary"}>{next.label}<Icon name="arrow" size={16} /></button>
+            ? <button onClick={next.run} disabled={next.off} className={`${next.off ? "btn-off" : "btn-primary"} min-w-0 flex-1 justify-center md:flex-none`}><span className="truncate">{next.label}</span><Icon name="arrow" size={16} /></button>
             : <>
               <button onClick={() => open("M002")} className="btn-ghost">Sharma Medicos</button>
               <button onClick={() => open("M007")} className="btn-ghost">Verma: missed EMIs</button>
