@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useEvents } from "../hooks/useEvents";
-import { Empty, Icon, Pill, Skeleton } from "../ui";
+import { Empty, Icon, Skeleton } from "../ui";
 import MerchantPhone from "./MerchantPhone";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -36,7 +36,6 @@ function Picker({ selected, pick }: { selected: string; pick: (id: string) => vo
   return (
     <aside className="flex min-h-0 w-full flex-col border-r border-line bg-white lg:w-80 lg:shrink-0">
       <div className="space-y-2 border-b border-line p-3">
-        <div className="text-sm font-semibold text-ink">Be any of {data ? data.total.toLocaleString("en-IN") : "the"} shops</div>
         <div className="relative">
           <Icon name="search" size={16} className="absolute left-2.5 top-2.5 text-muted" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name, city or ID" aria-label="Search shops" className="w-full rounded-lg border border-line bg-paper py-1.5 pl-8 pr-3 text-sm outline-none focus:border-paytm" />
@@ -136,11 +135,9 @@ export default function Live() {
       <header className="flex items-center gap-3 border-b border-line bg-white px-4 py-2">
         <span className="grid h-7 w-7 place-items-center rounded-lg bg-gradient-to-br from-paytm to-paytm-deep text-sm font-extrabold text-white">र</span>
         <span className="font-bold text-ink">Rishta</span>
-        <Pill tone="warn">Simulated shop data, real agent</Pill>
         <span className="flex-1" />
         <button onClick={() => void fetch("/api/reset", { method: "POST" }).then(load)} className="btn-quiet flex items-center gap-1.5 text-sm"><Icon name="reset" size={15} />Reset</button>
         <a href="/sales" className="btn-ghost text-sm">Sales app</a>
-        <a href="/demo" className="btn-ghost text-sm">Guided demo</a>
       </header>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
         <div className="h-72 shrink-0 lg:h-auto lg:contents"><Picker selected={id} pick={pick} /></div>

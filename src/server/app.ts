@@ -25,7 +25,7 @@ import type { makeTts } from "../voice/tts.js";
 import { bearer, issueMerchantToken, merchantFromToken, validKey } from "./auth.js";
 import { metrics, registry } from "./metrics.js";
 import { openapi } from "./openapi.js";
-import { consoleView, decisionsView, merchantView, shopView, shopsView } from "./views.js";
+import { consoleView, decisionsView, merchantView, phoneLine, shopView, shopsView } from "./views.js";
 
 export interface AppDeps extends AgentDeps {
   s: Settings;
@@ -128,6 +128,12 @@ export async function buildApp(d: AppDeps) {
   app.get<{ Params: { id: string } }>("/api/merchant/:id", { preHandler: merchantAuth }, async (req, reply) => {
     if (!(await sql.get("SELECT 1 AS ok FROM merchants WHERE id = ?", [req.params.id]))) return reply.code(404).send({ error: "No such shop" });
     return merchantView(sql, core, req.params.id);
+  });
+
+  app.get<{ Params: { id: string; screen: string } }>("/api/phone-line/:id/:screen", { preHandler: merchantAuth }, async (req, reply) => {
+    if (!(await sql.get("SELECT 1 AS ok FROM merchants WHERE id = ?", [req.params.id]))) return reply.code(404).send({ error: "No such shop" });
+    const line = await phoneLine(core, req.params.id, req.params.screen);
+    return line ? say(line) : reply.code(404).send({ error: "No such screen" });
   });
 
   app.get<{ Querystring: { t?: string; s?: string } }>("/api/tts/:hash", async (req, reply) => {

@@ -1,6 +1,6 @@
 import { PLAYBOOK, approachById } from "../../config/playbook.js";
 import type { Sql } from "../data/sql.js";
-import { feeFacts, summaryFacts } from "../engine/facts.js";
+import { feeFacts, summaryFacts, deviceFacts } from "../engine/facts.js";
 import { outreachBlock } from "../engine/guardrails.js";
 import { REASON_LABELS, SUGGESTED_MOVES, type ReasonCode } from "../engine/reasons.js";
 import { COST } from "../../config/value.js";
@@ -284,6 +284,20 @@ export async function shopView(sql: Sql, core: PaytmCore, id: string) {
   };
 }
 
+// What the phone says when a shopkeeper opens a screen. Built from this shop's own figures.
+export async function phoneLine(core: PaytmCore, id: string, screen: string) {
+  const m = await core.merchant(id);
+  const s = summaryFacts(m, TODAY);
+  const d = deviceFacts(m, TODAY);
+  const lines: Record<string, string> = {
+    qr: "यह आपका QR है। ग्राहक इसे scan करके pay कर सकते हैं।",
+    payments: `आज ₹${s.salesTodayInr} की ${s.paymentsToday} payments आई हैं।`,
+    settlement: `पिछले settlement में आपको ₹${s.latestSettlementNetInr} मिले।`,
+    soundbox: d.batteryAlerts7Days > 0 || d.offlineHours7Days > 2 ? "आपके Soundbox में कुछ दिक्कत दिख रही है। Assistant से पूछ सकते हैं।" : "आपका Soundbox ठीक चल रहा है।",
+  };
+  return lines[screen] ?? null;
+}
+
 export async function merchantView(sql: Sql, core: PaytmCore, id: string) {
   const m = await core.merchant(id);
   const brief = await sql.get("SELECT json FROM briefs WHERE merchant_id = ? AND sort_key >= 0", [id]);
@@ -296,6 +310,8 @@ export async function merchantView(sql: Sql, core: PaytmCore, id: string) {
     today: m.days[TODAY - 1]!.value,
     ...summaryFacts(m, TODAY),
     fee: feeFacts(m, TODAY),
+    device: deviceFacts(m, TODAY),
+    recent: Array.from({ length: 7 }, (_, i) => ({ label: i === 0 ? "आज" : i === 1 ? "कल" : `${i} दिन पहले`, value: Math.round(m.days[TODAY - 1 - i]!.value), count: m.days[TODAY - 1 - i]!.count })),
     hasBrief: !!brief,
     channel: brief ? parse(brief.json).channel : null,
     conversation: await latestConversation(sql, id),

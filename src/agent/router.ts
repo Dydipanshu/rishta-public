@@ -1,22 +1,24 @@
 // Decided by code, before the model, because these must never depend on a model's mood.
 import { FRAUD_HELPLINE } from "../../config/value.js";
 
-export type Route = "fraud" | "trust" | "human" | "optout" | "later" | "quiet" | "account" | null;
+export type Route = "identity" | "fraud" | "trust" | "human" | "optout" | "later" | "quiet" | "account" | null;
 
-const FRAUD = /fraud|scam|धोखा|धोखाधड़ी|ठग|ठगी|फ्रॉड|फ्रॉड|पुलिस|police|कोर्ट|court|वकील|lawyer|कानूनी|legal/i;
-const LOSS = /(otp|पिन|pin|ओटीपी)[^।?!.]{0,30}(बता दिया|दे दिया|शेयर|share|gave|told)|(खाते|account)[^।?!.]{0,20}(पैसे|money)?[^।?!.]{0,12}(कट गए|निकल गए|गायब)/i;
+const FRAUD = /fraud|scam|thag|dhokha|धोखा|धोखाधड़ी|ठग|ठगी|फ्रॉड|फ्रॉड|पुलिस|police|कोर्ट|court|वकील|lawyer|कानूनी|legal/i;
+const LOSS = /(otp|पिन|pin|ओटीपी)[^।?!.]{0,30}(बता दिया|दे दिया|शेयर|share|gave|told)|(खाते|account)[^।?!.]{0,20}(पैसे|money)?[^।?!.]{0,12}(कट गए|निकल गए|गायब)|(otp|ओटीपी|pin|पिन|call|कॉल|फोन|फ़ोन|phone|link|लिंक|message|मैसेज)[^।?!]{0,60}(कट गए|कट गया|निकल गए|निकल गया|चले गए|गायब|kat gaye|kat gaya|kat gya|nikal gaye|nikal gaya|chale gaye|gayab)/i;
 // "Is this a scam?" is a good question, not a fraud report.
 const TRUST = /(is (this|it)|are you|क्या (यह|ये|तुम|आप)|kya|ye|yeh)[^।?!.]{0,25}(scam|fraud|fake|real|genuine|असली|नकली|फर्जी|फ़र्ज़ी|धोखा)|how (do|can) i (know|trust)|really paytm|(असली|सच में) paytm/i;
-const ABUSE = /बेवकूफ|बकवास|मूर्ख|गधे|idiot|stupid|nonsense|bloody/i;
+const ABUSE = /बेवकूफ|बकवास|मूर्ख|गधे|चोर|idiot|stupid|nonsense|bloody|bewakoof|bakwas|gadhe|\bchor\b/i;
+const IDENTITY = /(इंसान|आदमी|रोबोट|robot|\bbot\b|insaan|insan|aadmi|human|real person)[^।?!.]{0,10}(हो|है|हैं|ho\b|hai\b|hain\b|\?)|(are you|r u)[^?]{0,12}(human|bot|robot|real|ai\b)|(tum|aap|तुम|आप)[^।?!.]{0,8}(ai|bot|robot|रोबोट)\b|(तुम्हारा|आपका|tumhara|aapka|your)[^।?!.]{0,3}(नाम|naam|name)/i;
 export const HIDDEN = "[number removed]";
 // Account, card and phone numbers never reach the model, the transcript or the logs.
 export const hideLongNumbers = (text: string) => text.replace(/\d(?:[\s-]?\d){8,}/g, HIDDEN);
-const HUMAN = /(इंसान|आदमी|व्यक्ति|किसी से|manager|मैनेजर|agent|executive|human|real person|a person)[^।?!.]{0,25}(बात|बुलाओ|बात कराओ|बात करनी|दो|talk|speak|connect)/i;
-const OPT_OUT = /(contact|संपर्क|call|फ़ोन|फोन|message|मैसेज)[^।?!.]{0,14}(मत|नहीं करना|बंद)|(दोबारा|फिर से)[^।?!.]{0,20}मत|बंद करो ये|ये सब बंद|don'?t (contact|call|message)|stop (contacting|calling|messaging)|leave me alone/i;
-const LATER = /बाद में[^।?!.]{0,12}(बात|करो|करना|कीजिए|बोलो)|अभी[^।?!.]{0,10}(busy|व्यस्त|टाइम नहीं|समय नहीं)|ग्राहक खड़े|talk later|call (me )?later|i'?m busy|not now/i;
+const HUMAN = /(इंसान|आदमी|व्यक्ति|किसी से|manager|मैनेजर|agent|executive|human|real person|a person|insaan|insan|aadmi|vyakti|kisi se)[^।?!.]{0,25}(बात|बुलाओ|बात कराओ|बात करनी|दो|talk|speak|connect|baat|bulao|karao)/i;
+const OPT_OUT = /(contact|संपर्क|call|phone|fone|फ़ोन|फोन|message|मैसेज)[^।?!.]{0,14}(मत|नहीं करना|बंद|\bmat\b|nahi karna|band)|^\s*(ye sab |yeh sab )?band karo( ye sab| yeh sab)?\s*[.!।]?\s*$|(दोबारा|फिर से)[^।?!.]{0,20}मत|बंद करो ये|ये सब बंद|don'?t (contact|call|message)|stop (contacting|calling|messaging)|leave me alone/i;
+const LATER = /(बाद में|baad me|baad mein)[^।?!.]{0,12}(बात|करो|करना|कीजिए|बोलो|baat|karo|karna|karte)|abhi[^।?!.]{0,10}(busy|time nahi|customer)|अभी[^।?!.]{0,10}(busy|व्यस्त|टाइम नहीं|समय नहीं)|ग्राहक खड़े|talk later|call (me )?later|i'?m busy|not now/i;
 const QUIET = /(ज़ोर|जोर)[^।?!.]{0,6}से[^।?!.]{0,6}मत|धीरे बोल|ग्राहक सुन|सब सुन रहे|don'?t say (it|that) (out )?loud|customers can hear|keep (it|your voice) (down|low)/i;
 
 export function routeTurn(text: string): Route {
+  if (IDENTITY.test(text) && !/(बात|baat|talk|speak)/i.test(text)) return "identity";
   if (LOSS.test(text)) return "fraud";
   if (TRUST.test(text)) return "trust";
   if (FRAUD.test(text)) return "fraud";
@@ -30,6 +32,7 @@ export function routeTurn(text: string): Route {
 
 // Fixed lines: [Hindi, English].
 export const LINES = {
+  identity: ["जी, मैं Paytm की AI assistant हूँ, इंसान नहीं। बताइए, क्या मदद करूँ?", "I'm Paytm's AI assistant, not a person. How can I help?"],
   fraud: [`जी, यह गंभीर है। अभी अपना PIN बदलिए और ${FRAUD_HELPLINE} पर call कीजिए। Paytm की fraud team का एक व्यक्ति आपको call करेगा।`, `This is serious. Change your PIN now and call ${FRAUD_HELPLINE}. A person from Paytm's fraud team will call you.`],
   trust: ["जाँच करना बिल्कुल सही है। मैं Paytm की AI assistant हूँ। मैं OTP, PIN या bank details कभी नहीं माँगूँगी और कोई link नहीं भेजूँगी। अपना हिसाब आप खुद Paytm for Business app में देख सकते हैं।", "You're right to check. I'm Paytm's AI assistant. I will never ask for an OTP, PIN or bank details, and I won't send links. You can see your own figures in the Paytm for Business app."],
   account: ["जी, account या card का number मुझे मत बताइए, मुझे इसकी ज़रूरत नहीं। मैंने उसे हटा दिया है। बताइए, क्या दिक्कत है?", "Please don't share account or card numbers, I don't need them. I've removed it. What's the problem?"],

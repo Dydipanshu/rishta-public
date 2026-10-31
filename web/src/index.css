@@ -73,3 +73,6 @@ button { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+.noscroll { scrollbar-width: none; }
+.noscroll::-webkit-scrollbar { display: none; }

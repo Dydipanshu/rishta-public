@@ -7,9 +7,10 @@ export interface ActiveLoan {
   emiInr: number;
   missedEmis: number;
   onTimeMonths: number;
+  remainingEmis: number;
 }
 
-const DEMO_LOANS: Record<string, ActiveLoan> = { M007: { emiInr: 2400, missedEmis: 3, onTimeMonths: 14 } };
+const DEMO_LOANS: Record<string, ActiveLoan> = { M007: { emiInr: 2400, missedEmis: 3, onTimeMonths: 14, remainingEmis: 10 } };
 const hash = (id: string) => [...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 9973, 7);
 
 // The bench's loan book, stable per shop. In production this is a read from the lending system.
@@ -19,7 +20,7 @@ export function loanOf(m: Merchant, f: Features): ActiveLoan | null {
   if (h % 100 >= 6) return null;
   const emiInr = Math.max(500, Math.round((f.monthlyCollections * 0.04) / 100) * 100);
   const missedEmis = f.drop3Weeks >= 0.3 ? 1 + (h % 3) : h % 20 === 0 ? 2 : 0;
-  return { emiInr, missedEmis, onTimeMonths: 3 + (h % 18) };
+  return { emiInr, missedEmis, onTimeMonths: 3 + (h % 18), remainingEmis: 4 + (h % 12) };
 }
 
 const pct = (f: Features) => Math.round(f.drop3Weeks * 100);
@@ -29,7 +30,7 @@ export function hardship(loan: ActiveLoan, f: Features) {
   const salesDropPct = Math.max(0, pct(f));
   const genuine = salesDropPct >= LENDER_RULES.minSalesDropPct && loan.onTimeMonths >= 6;
   return {
-    hasLoan: true, emiInr: loan.emiInr, missedEmis: loan.missedEmis, overdueInr: loan.emiInr * loan.missedEmis, onTimeMonthsBefore: loan.onTimeMonths, salesDropPct, genuineHardship: genuine,
+    hasLoan: true, emiInr: loan.emiInr, missedEmis: loan.missedEmis, overdueInr: loan.emiInr * loan.missedEmis, remainingEmis: loan.remainingEmis, totalLeftToPayInr: loan.emiInr * (loan.remainingEmis + loan.missedEmis), onTimeMonthsBefore: loan.onTimeMonths, salesDropPct, genuineHardship: genuine,
     reducedEmiInr: genuine ? Math.ceil((loan.emiInr * (100 - LENDER_RULES.maxEmiCutPct)) / 100) : null,
     reliefMonths: genuine ? LENDER_RULES.maxReliefMonths : null,
     nextStep: genuine ? "Offer the reduced EMI." : "No reduced EMI is available. A person can review this.",
@@ -59,7 +60,8 @@ export function loanOffer(m: Merchant, f: Features) {
   return {
     eligible: true as const,
     ...stock,
-    options: LOAN_TERMS.map((t) => ({ optionId: t.optionId, amountInr, days: t.days, dailyInr: Math.ceil((amountInr * t.repayFactor) / t.days), totalRepayInr: Math.ceil((amountInr * t.repayFactor) / t.days) * t.days })),
+    amountBasis: "Set from a month of this shop's stock and never above one month's collections. A bigger amount needs higher collections.",
+    options: LOAN_TERMS.map((t) => ({ optionId: t.optionId, amountInr, days: t.days, dailyInr: Math.ceil((amountInr * t.repayFactor) / t.days), totalRepayInr: Math.ceil((amountInr * t.repayFactor) / t.days) * t.days, extraCostInr: Math.ceil((amountInr * t.repayFactor) / t.days) * t.days - amountInr })),
     note: "Illustrative offer. The lender makes the final decision.",
   };
 }

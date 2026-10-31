@@ -19,16 +19,17 @@ import type { LLMAdapter, LLMItem } from "./llmAdapter.js";
 import { runTool, toolsFor, type ToolContext } from "./tools.js";
 
 const TEMPLATE = readFileSync(new URL("./prompts/system.md", import.meta.url), "utf8");
-const READ_TOOLS = new Set(["getMerchantSummary", "explainFee", "checkDeviceHealth", "proposePlan"]);
+const READ_TOOLS = new Set(["getMerchantSummary", "getShopProfile", "explainFee", "checkDeviceHealth", "proposePlan", "proposeLoan", "checkLoan"]);
 const GOODBYE = /(धन्यवाद|दिन शुभ|thank you|good day|nice day|great day)[^?]*[।.!]?\s*$/i;
 const CONFIRMED = new Set(["raiseTicket", "changePlan", "requestDeviceReturn", "setReducedEmi", "acceptLoan"]);
-const CARE = /(hospital|अस्पताल|बीमार|ऑपरेशन|operation|गुज़र|गुजर|निधन|शादी|death|passed away|ill\b|sick)/i;
+const CARE = /(bimar|hospital|अस्पताल|बीमार|ऑपरेशन|operation|गुज़र|गुजर|निधन|शादी|death|passed away|ill\b|sick)/i;
 const STAYING = /\b(samajh gaya|samajh gayi|samajh aa gaya|theek hai|thik hai|achha|accha|dhanyavaad|shukriya|thanks|thank you|ok|okay|understood|got it)\b|समझ|ठीक है|धन्यवाद|शुक्रिया|रखूँगा|रखूंगा|रखूँगी|रखूंगी|रख लेता|रखता हूँ|रखेंगे|नहीं लौटा|वापस नहीं|समझ गया|समझ गई|समझ आ गया|समझ आ गई|ठीक है|ठीक हो गया|सब ठीक|और कुछ नहीं|कुछ नहीं|धन्यवाद|शुक्रिया|thanks?\b|thank you|i'?ll keep|will keep|understood|got it|okay|\bok\b/i;
 const LOAN_ASK = ["एक बात और, आपकी दुकान का record अच्छा है। अगर चाहें तो Paytm से एक व्यक्ति business loan के बारे में बता सकता है। बात कराऊँ?", "One more thing: your shop's record is good. If you'd like, a person from Paytm can tell you about a business loan. Shall I arrange that?"] as const;
 const LOAN_YES = ["जी, वे आपको call करेंगे। धन्यवाद, आपका दिन शुभ हो।", "They will call you. Thank you, have a good day."] as const;
 const LOAN_NO = ["जी, कोई बात नहीं। धन्यवाद, आपका दिन शुभ हो।", "No problem. Thank you, have a good day."] as const;
-const FALLBACK = "जी, मैं check करके बताती हूँ।";
+const FALLBACK = "जी, यह पक्का आँकड़ा अभी मेरे पास नहीं है। और कुछ बताऊँ?";
 const NO_SPLITTING = "जी, fee बचाने के तरीकों पर मैं सलाह नहीं दे सकती। कोई और सवाल हो तो बताइए।";
+const NO_PROMISE = "जी, इसकी पक्की तारीख या वादा मैं नहीं दे सकती। Team आपसे खुद संपर्क करेगी।";
 const CANNOT_HELP = "जी, इसमें मैं मदद नहीं कर सकती। Paytm से जुड़ा कोई और सवाल हो तो बताइए।";
 const FAILOVER = "माफ़ कीजिए, अभी दिक्कत आ रही है। Paytm से एक व्यक्ति आपको call करेगा।";
 const SECRET_HI = "जी, OTP या PIN किसी को मत बताइए, मुझे भी नहीं। Paytm कभी नहीं माँगता। आपका कोई और सवाल हो तो बताइए।";
@@ -44,16 +45,16 @@ const CLOSING_LINES: Record<string, [string, string]> = {
 function confirmation(call: string, result: Record<string, unknown>, english: boolean, device: boolean) {
   if (call === "raiseTicket") {
     const next = device ? ["Device team replacement के लिए आपसे संपर्क करेगी।", "The device team will contact you about a replacement."] : ["Support team इसे देखेगी।", "The support team will review it."];
-    if (result.existing) return english ? `Your ticket ${result.ticketId} is already open, so I added this to it. ${next[1]} Thank you.` : `जी, आपका ticket ${result.ticketId} पहले से चल रहा है, मैंने यह बात उसमें जोड़ दी। ${next[0]} धन्यवाद।`;
-    return english ? `Your ticket ${result.ticketId} is raised. ${next[1]} Thank you.` : `जी, आपका ticket ${result.ticketId} बन गया है। ${next[0]} धन्यवाद।`;
+    if (result.existing) return english ? `Your ticket ${result.ticketId} is already open, so I added this to it. ${next[1]} Anything else?` : `जी, आपका ticket ${result.ticketId} पहले से चल रहा है, मैंने यह बात उसमें जोड़ दी। ${next[0]} और कुछ बताऊँ?`;
+    return english ? `Your ticket ${result.ticketId} is raised. ${next[1]} Anything else?` : `जी, आपका ticket ${result.ticketId} बन गया है। ${next[0]} और कुछ बताऊँ?`;
   }
   if (call === "requestDeviceReturn") {
-    return english ? `Your return request ${result.ticketId} is booked. The pickup team will contact you. You can come back any time. Thank you.` : `जी, आपकी वापसी का request ${result.ticketId} बन गया है। Pickup team आपसे संपर्क करेगी। आप कभी भी वापस आ सकते हैं। धन्यवाद।`;
+    return english ? `Your return request ${result.ticketId} is booked. The pickup team will contact you. You can come back any time. Anything else?` : `जी, आपकी वापसी का request ${result.ticketId} बन गया है। Pickup team आपसे संपर्क करेगी। आप कभी भी वापस आ सकते हैं। और कुछ बताऊँ?`;
   }
-  if (call === "setReducedEmi") return english ? `Done. Your EMI is ₹${Number(result.reducedEmiInr).toLocaleString("en-IN")} for ${result.reliefMonths} months. The details are in your app. Thank you.` : `जी, हो गया। ${result.reliefMonths} महीने के लिए आपकी EMI ₹${Number(result.reducedEmiInr).toLocaleString("en-IN")} है। पूरी जानकारी आपके app में है। धन्यवाद।`;
-  if (call === "acceptLoan") return english ? `Sent to your Paytm app for approval: ₹${Number(result.dailyInr)} a day. The lender makes the final decision. Please never share an OTP. Thank you.` : `जी, यह आपके Paytm app में approval के लिए भेज दिया: रोज़ ₹${Number(result.dailyInr)}। अंतिम फ़ैसला lender करेगा। OTP किसी को मत बताइएगा। धन्यवाद।`;
+  if (call === "setReducedEmi") return english ? `Done. Your EMI is ₹${Number(result.reducedEmiInr).toLocaleString("en-IN")} for ${result.reliefMonths} months. The details are in your app. Anything else?` : `जी, हो गया। ${result.reliefMonths} महीने के लिए आपकी EMI ₹${Number(result.reducedEmiInr).toLocaleString("en-IN")} है। पूरी जानकारी आपके app में है। और कुछ बताऊँ?`;
+  if (call === "acceptLoan") return english ? `Sent to your Paytm app for approval: ₹${Number(result.dailyInr)} a day. The lender makes the final decision. Please never share an OTP. Anything else?` : `जी, यह आपके Paytm app में approval के लिए भेज दिया: रोज़ ₹${Number(result.dailyInr)}। अंतिम फ़ैसला lender करेगा। OTP किसी को मत बताइएगा। और कुछ बताऊँ?`;
   if (call === "changePlan") {
-    return english ? `Your plan is now ${result.newPlan}. Your rent will be ₹${result.newRentInr} a month. Thank you.` : `जी, आपका plan ${result.newPlan} हो गया है। अब rent ₹${result.newRentInr} महीना लगेगा। धन्यवाद।`;
+    return english ? `Your plan is now ${result.newPlan}. Your rent will be ₹${result.newRentInr} a month. Anything else?` : `जी, आपका plan ${result.newPlan} हो गया है। अब rent ₹${result.newRentInr} महीना लगेगा। और कुछ बताऊँ?`;
   }
   return null;
 }
@@ -207,7 +208,7 @@ export class Conversation {
 
   // A check-back says what it remembers, because that is the point of it.
   opening(english = false) {
-    if (this.brief.channel === "inbound") return "";
+    if (this.brief.channel === "inbound" || this.brief.channel === "human_callback") return "";
     const name = String(this.brief.facts.firstName);
     const waiting = this.state.promise;
     const text = waiting
@@ -232,6 +233,7 @@ export class Conversation {
 
   // Why the model may not end the conversation yet, if so.
   private closeBlocked(call: { name: string; args: string }, said: string[], batch: { name: string }[]) {
+    if (call.name === "raiseTicket" && this.actions.includes("raiseTicket")) return "A ticket is already raised in this conversation. Do not raise or mention it again. Just answer what they asked.";
     if (call.name !== "recordOutcome") return null;
     if (said.at(-1)?.trim().endsWith("?")) return "You just asked the merchant a question. Wait for the answer. Do not end yet.";
     const kind = (JSON.parse(call.args || "{}") as { outcome?: string }).outcome;
@@ -355,7 +357,7 @@ export class Conversation {
         // The merchant already has an answer, so the blocked sentence is simply dropped.
         if (said.length) return;
         if (failure.kind === "forbidden") {
-          const line = failure.reason.includes("splitting") ? NO_SPLITTING : CANNOT_HELP;
+          const line = failure.reason.includes("splitting") ? NO_SPLITTING : failure.reason.includes("promise") ? NO_PROMISE : CANNOT_HELP;
           this.say(line);
           yield line;
           return;
@@ -384,11 +386,10 @@ export class Conversation {
         const told = this.transcript.some((t) => t.role === "agent" && t.text.includes(String(total)));
         const figures = total && !told ? (english ? `Our record shows ₹${total} deducted: fee ₹${fee} and GST ₹${gst}. ` : `जी, हमारे record में ₹${total} कटे हैं: fee ₹${fee} और GST ₹${gst}। `) : "";
         const reason = figures || (said.length === 0 && alerts ? (english ? `I can see ${alerts} battery alerts in the last 7 days. ` : `जी, पिछले 7 दिन में ${alerts} battery alerts आए हैं। `) : "");
-        const line = reason + confirmations.join(" ");
+        const line = reason + (reason ? confirmations.join(" ").replace(/^जी, /, "") : confirmations.join(" "));
         this.state.input.push({ role: "assistant", content: line });
         this.say(line);
         yield line;
-        this.state.ended = true;
         return;
       }
       const offer = await this.loanAsk(english);
@@ -431,7 +432,7 @@ export class Conversation {
       this.state.input.pop();
       this.ctx.onOutcome("handed_off", "Possible fraud reported. Urgent handoff; shop told to change PIN and call 1930.");
       yield this.fixed(LINES.fraud, english);
-    } else if (route === "trust" || route === "account") {
+    } else if (route === "trust" || route === "account" || route === "identity") {
       this.state.input.pop();
       yield this.fixed(LINES[route], english);
     } else if (route === "human") {
@@ -463,7 +464,7 @@ export class Conversation {
   // Only a shop whose problem is solved, and whose record supports it, is asked. Asked once, and a person does the selling.
   private async loanAsk(english: boolean) {
     const last = this.transcript.filter((t) => t.role === "merchant").at(-1)?.text ?? "";
-    if (this.brief.problem.startsWith("loan_") || this.actions.includes("acceptLoan") || this.state.loan || !SOLVED.includes(this.state.outcome as OutcomeKind) || !STAYING.test(last) || this.brief.problem === "unknown") return null;
+    if (this.actions.some((a) => a === "checkLoan" || a === "setReducedEmi" || a === "proposeLoan") || this.brief.problem.startsWith("loan_") || this.actions.includes("acceptLoan") || this.state.loan || !SOLVED.includes(this.state.outcome as OutcomeKind) || !STAYING.test(last) || this.brief.problem === "unknown") return null;
     const m = await this.deps.core.merchant(this.brief.merchantId);
     const monthly = Number(this.brief.facts.collections30DaysInr ?? 0);
     if (!shopValue(m, monthly, TODAY - m.onboardDay, 0).loanReady) return null;
@@ -479,10 +480,6 @@ export class Conversation {
 
   private async *fallback() {
     this.state.numbersVerified = false;
-    const type = this.brief.problem === "device_fault" ? "device" : this.brief.problem === "rent_too_high" ? "rent" : "settlement";
-    const result = await runTool(this.ctx, "raiseTicket", JSON.stringify({ type, note: "Agent could not verify a figure; needs a check." }));
-    this.actions.push("raiseTicket");
-    collectNumbers(result, this.allowed);
     this.say(FALLBACK);
     yield FALLBACK;
   }

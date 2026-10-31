@@ -15,7 +15,7 @@ export function languageOfText(text: string, current: string) {
 }
 
 // Fixed lines follow the merchant: full English gets English, a stray word doesn't.
-const ROMAN_HINDI = /\b(mera|mere|meri|ke|ka|ki|mein|baare|batao|bataiye|kitna|kaise|abhi|hoon|hun|mujhe|paise|paisa|kya|kyu|kyun|hai|hain|nahi|nahin|kaat|kat|rahe|raha|aap|aapka|kar|karo|dukan|dukaan|band|zyada|kam|haan|theek|thik|chahiye|bhai|ji)\b/i;
+const ROMAN_HINDI = /\b(mera|mere|meri|ke|ka|ki|mein|baare|batao|bataiye|kitna|kaise|abhi|hoon|hun|mujhe|paise|paisa|kya|kyu|kyun|hai|hain|nahi|nahin|kaat|kat|rahe|raha|aap|aapka|kar|karo|dukan|dukaan|band|zyada|kam|haan|theek|thik|chahiye|bhai|ji|tum|tumhara|insaan|ho|le|lo|jao|wapas|wala|wali|karo|kar|dena|aaj|kal|aur|toh|tha|thi|gaya|gaye|se|par|bhi|ye|yeh|nahi|bata|sunao|mausam|hafte|mahine|kitne|kaisa|kaisi|kab|kyon|rehne|bas|itna|achha|bura)\b/i;
 export const isEnglish = (text: string) => /^[\x00-\x7F₹]+$/.test(text) && words(text) >= 3 && !ROMAN_HINDI.test(text);
 
 // Noisy Hindi can be misread as another language, so a switch needs a confident, full phrase in the right script.

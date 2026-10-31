@@ -9,6 +9,7 @@ import { buildFeatures } from "../features/buildFeatures.js";
 import { hardship, loanOf, loanOffer } from "../engine/loans.js";
 import { addPromise, closePromises, openPromises } from "../engine/memory.js";
 import type { LLMTool } from "./llmAdapter.js";
+import { routeTurn } from "./router.js";
 
 export interface ToolContext {
   sql: Sql;
@@ -161,7 +162,8 @@ export const TOOLS: Record<ActionName, ToolDef> = {
   recordOptOut: {
     description: "Stop all outreach to this merchant.",
     args: none,
-    run: async ({ core, brief, onOutcome }) => {
+    run: async ({ core, brief, onOutcome, lastUserText }) => {
+      if (routeTurn(lastUserText()) !== "optout") return { error: "They did not ask to stop contact. Do not opt them out. Answer what they said." };
       await core.optOut(brief.merchantId);
       onOutcome("opted_out", "Merchant asked to stop outreach.");
       return { optedOut: true };

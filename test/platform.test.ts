@@ -79,6 +79,11 @@ describe("platform", () => {
       expect((await conv.finish())!.outcome).toBe("ticket_raised");
     });
 
+    it("says it is an AI, in plain words, when asked", async () => {
+      const { replies } = await run([says("x")], "tum insaan ho?");
+      expect(replies[0]).toContain("AI assistant");
+    });
+
     it("won't hang up on a complaint it hasn't answered", async () => {
       const { conv, replies } = await run([acts("", call("recordOutcome", { outcome: "stayed", summary: "x" })), says("जी, fee ₹38 है।")], "पैसे कम आए");
       expect(replies[0]).toContain("₹38");
