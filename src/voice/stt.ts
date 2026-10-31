@@ -20,8 +20,9 @@ const MIN_CLIP_BYTES = 1500;
 
 export function makeStt(s: Settings) {
   const sarvam = new SarvamAIClient({ apiSubscriptionKey: s.SARVAM_API_KEY });
-  const transcribe = (audio: Buffer, contentType: string, language: "unknown" | "hi-IN") => withTimeout(sarvam.speechToText.transcribe({
-    file: { data: audio, filename: contentType.includes("mp4") ? "clip.m4a" : "clip.webm", contentType },
+  const transcribe = (audio: Buffer, rawType: string, language: "unknown" | "hi-IN") => withTimeout(sarvam.speechToText.transcribe({
+    // Sarvam rejects "audio/mp4;codecs=..."; only the plain type is accepted.
+    file: { data: audio, filename: rawType.includes("mp4") ? "clip.m4a" : "clip.webm", contentType: rawType.split(";")[0]!.trim() },
     model: s.SARVAM_STT_MODEL as "saaras:v4",
     mode: "codemix",
     language_code: language,
@@ -32,7 +33,10 @@ export function makeStt(s: Settings) {
     // An accidental double tap sends a clip too short to read. That means "didn't hear", not a failed call.
     if (audio.length < MIN_CLIP_BYTES) return { text: "", language: current };
     const res = await transcribe(audio, contentType, "unknown").catch((err: { statusCode?: number }) => {
-      if (err.statusCode === 400) return null;
+      if (err.statusCode === 400) {
+        console.error(`Speech-to-text refused a ${audio.length} byte ${contentType} clip`);
+        return null;
+      }
       throw err;
     });
     if (!res) return { text: "", language: current };

@@ -37,7 +37,7 @@ page.on("console", (m) => {
 await page.addInitScript(() => {
   const ctx = new AudioContext();
   const dest = ctx.createMediaStreamDestination();
-  navigator.mediaDevices.getUserMedia = async () => dest.stream;
+  navigator.mediaDevices.getUserMedia = async () => dest.stream.clone();
   (window as never as { say: (b: string) => Promise<number> }).say = async (b64) => {
     await ctx.resume();
     const buffer = await ctx.decodeAudioData(Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0)).buffer);

@@ -59,7 +59,7 @@ function confirmation(call: string, result: Record<string, unknown>, english: bo
     return english ? `Your ticket ${result.ticketId} is raised. ${next[1]} Anything else?` : `जी, आपका ticket ${result.ticketId} बन गया है। ${next[0]} और कुछ बताऊँ?`;
   }
   if (call === "requestDeviceReturn") {
-    return english ? `Your return request ${result.ticketId} is booked. The pickup team will contact you. You can come back any time. Anything else?` : `जी, आपकी वापसी का request ${result.ticketId} बन गया है। Pickup team आपसे संपर्क करेगी। आप कभी भी वापस आ सकते हैं। और कुछ बताऊँ?`;
+    return english ? `Your return request ${result.ticketId} is booked. The pickup team will contact you. You can come back any time.` : `जी, आपकी वापसी का request ${result.ticketId} बन गया है। Pickup team आपसे संपर्क करेगी। आप कभी भी वापस आ सकते हैं।`;
   }
   if (call === "setReducedEmi") return english ? `Done. Your EMI is ₹${Number(result.reducedEmiInr).toLocaleString("en-IN")} for ${result.reliefMonths} months. The details are in your app. Anything else?` : `जी, हो गया। ${result.reliefMonths} महीने के लिए आपकी EMI ₹${Number(result.reducedEmiInr).toLocaleString("en-IN")} है। पूरी जानकारी आपके app में है। और कुछ बताऊँ?`;
   if (call === "acceptLoan") return english ? `Sent to your Paytm app for approval: ₹${Number(result.dailyInr)} a day. The lender makes the final decision. Please never share an OTP. Anything else?` : `जी, यह आपके Paytm app में approval के लिए भेज दिया: रोज़ ₹${Number(result.dailyInr)}। अंतिम फ़ैसला lender करेगा। OTP किसी को मत बताइएगा। और कुछ बताऊँ?`;

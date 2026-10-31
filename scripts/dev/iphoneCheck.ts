@@ -48,6 +48,13 @@ const open = async (denied: boolean) => {
 };
 const sideways = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
 const mic = (page: Page) => page.getByRole("button", { name: "Hold to talk" });
+const listening = async (page: Page) => {
+  await page.getByText(/सुन रही हूँ/).first().waitFor({ timeout: 8000 }).catch(async (e) => {
+    await page.screenshot({ path: `${OUT}/stuck.png` });
+    console.log("STUCK, page says:", (await page.locator("body").innerText()).slice(-300));
+    throw e;
+  });
+};
 const press = (page: Page, type: string) => mic(page).dispatchEvent(type, { pointerId: 1, pointerType: "touch", bubbles: true });
 
 {
@@ -64,21 +71,19 @@ const press = (page: Page, type: string) => mic(page).dispatchEvent(type, { poin
   check((await mic(page).evaluate((e) => getComputedStyle(e).getPropertyValue("-webkit-touch-callout"))) === "none", "long press shows no menu");
 
   // Tap once to listen, tap again to send.
-  await press(page, "pointerdown");
-  await page.getByText(/सुन रही हूँ/).first().waitFor();
-  await press(page, "pointerup");
+  await mic(page).tap();
+  await listening(page);
   await page.waitForTimeout(600);
   check(sent().talks === 0 && await page.getByText(/सुन रही हूँ/).first().isVisible(), "a tap keeps listening");
   await page.screenshot({ path: `${OUT}/listening.png` });
-  await press(page, "pointerdown");
+  await mic(page).tap();
   await page.getByText("जी, देख लिया।").waitFor();
-  await press(page, "pointerup");
   check(sent().talks === 1 && sent().type.includes("multipart"), "second tap sends the clip");
   check((await page.evaluate(() => (window as unknown as { __tracksStopped: number }).__tracksStopped)) > 0, "mic closes after the clip");
 
   // The phone takes the touch away during a hold: the clip must still go.
   await press(page, "pointerdown");
-  await page.getByText(/सुन रही हूँ/).first().waitFor();
+  await listening(page);
   await page.waitForTimeout(500);
   await press(page, "pointercancel");
   await page.waitForFunction(() => !document.body.innerText.includes("सुन रही हूँ…"), undefined, { timeout: 5000 }).catch(() => check(false, "cancelled hold left the mic on"));
@@ -104,6 +109,21 @@ const press = (page: Page, type: string) => mic(page).dispatchEvent(type, { poin
   await page.getByText(/Website Settings/).waitFor({ timeout: 5000 }).catch(() => check(false, "denied mic gave no help"));
   check(await page.getByText(/Website Settings/).isVisible(), "denied mic says how to allow it");
   await page.screenshot({ path: `${OUT}/denied.png` });
+  await browser.close();
+}
+{
+  const browser = await webkit.launch();
+  const ctx = await browser.newContext({ ...devices["iPhone SE"]! });
+  await ctx.addInitScript(fakeMic, false);
+  const page = await ctx.newPage();
+  for (const path of ["/", "/?shop=M001", "/new", "/sales"]) {
+    await page.goto(BASE + path);
+    await page.waitForTimeout(900);
+    check((await sideways(page)) <= 1, `small iPhone: ${path} does not scroll sideways`);
+    await page.screenshot({ path: `${OUT}/se${path.replace(/\W/g, "-")}.png` });
+  }
+  const box = await mic(await (async () => { await page.goto(`${BASE}/?shop=M001`); await page.getByText("Paytm Assistant").first().waitFor(); return page; })()).boundingBox();
+  check(!!box && box.y + box.height <= page.viewportSize()!.height, "small iPhone: mic is on screen");
   await browser.close();
 }
 console.log(problems.length ? `${problems.length} problems` : "All iPhone checks passed");
