@@ -5,6 +5,7 @@ import { detectProblem } from "../models/problems.js";
 import { addResult, allocation, chooseApproach, type Stats } from "../engine/playbook.js";
 import type { ReasonCode } from "../engine/reasons.js";
 import { buildDemoMerchants } from "./demoMerchants.js";
+import { simulateLoans } from "./loanTrial.js";
 import { BACKFIRE_SEGMENT, FIX_PROBABILITY } from "./groundTruth.js";
 import { QUOTES } from "./quoteTemplates.js";
 import { makeRng, normal, pick, weighted, type Rng } from "./rng.js";
@@ -246,7 +247,7 @@ export function simulate(seed: number, count: number, holdoutShare: number): Sim
       c.kept = m.churnDay === null || m.churnDay > c.day + KEEP_WINDOW_DAYS ? 1 : 0;
       if (c.approachId !== "holdout" && c.approachId !== "route") addResult(stats, c.problem, c.approachId, c.segment, c.kept === 1);
     }
-    for (const problem of Object.keys(PLAYBOOK) as ReasonCode[]) {
+    for (const problem of (Object.keys(PLAYBOOK) as ReasonCode[]).filter((p) => !p.startsWith("loan_"))) {
       for (const s of allocation(stats, problem, "*", decisionRng)) {
         allocations.push({ week: weekOf(day), problem, approachId: s.approachId, share: s.share });
       }
@@ -287,10 +288,12 @@ export function simulate(seed: number, count: number, holdoutShare: number): Sim
 
   // Demo shops were added after the seed was tuned. Trimming here keeps the same history, so the planted results hold and the total stays exact.
   const dropped = new Set(live.slice(count - demo.length).map((l) => l.m.id));
+  const merchants = [...demo, ...live.map((l) => l.m).filter((m) => !dropped.has(m.id))];
+  const loans = simulateLoans(merchants, seed);
   return {
-    merchants: [...demo, ...live.map((l) => l.m).filter((m) => !dropped.has(m.id))],
-    contacts: contacts.filter((c) => !dropped.has(c.merchantId)),
+    merchants,
+    contacts: [...contacts.filter((c) => !dropped.has(c.merchantId)), ...loans.contacts],
     reasonEvents: reasonEvents.filter((r) => !dropped.has(r.merchantId)),
-    allocations,
+    allocations: [...allocations, ...loans.allocations],
   };
 }

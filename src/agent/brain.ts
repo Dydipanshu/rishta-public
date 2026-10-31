@@ -13,6 +13,9 @@ import { NO, YES } from "./tools.js";
 import { addNote, memoryForAgent, openPromises, timeline } from "../engine/memory.js";
 import { SOLVED } from "../engine/brief.js";
 import { shopValue } from "../engine/value.js";
+import { canMentionLoan } from "../engine/loans.js";
+import { OFFER } from "../../config/loans.js";
+import { buildFeatures } from "../features/buildFeatures.js";
 import { TODAY } from "../sim/types.js";
 import { checkSentence, collectNumbers, numbersIn, takeChunks, type GuardResult } from "./guard.js";
 import type { LLMAdapter, LLMItem } from "./llmAdapter.js";
@@ -27,6 +30,11 @@ const STAYING = /\b(samajh gaya|samajh gayi|samajh aa gaya|theek hai|thik hai|ac
 const LOAN_ASK = ["एक बात और, आपकी दुकान का record अच्छा है। अगर चाहें तो Paytm से एक व्यक्ति business loan के बारे में बता सकता है। बात कराऊँ?", "One more thing: your shop's record is good. If you'd like, a person from Paytm can tell you about a business loan. Shall I arrange that?"] as const;
 const LOAN_YES = ["जी, वे आपको call करेंगे। धन्यवाद, आपका दिन शुभ हो।", "They will call you. Thank you, have a good day."] as const;
 const LOAN_NO = ["जी, कोई बात नहीं। धन्यवाद, आपका दिन शुभ हो।", "No problem. Thank you, have a good day."] as const;
+// The shop asked how to grow. A question, no figures, asked once. Fee or rent going up is not growth.
+const GROW = /(kaise|कैसे).{0,24}(badh|बढ़|बढा)|(badh|बढ़|बढा)\S*.{0,16}(kaise|कैसे)|\bstock\b|स्टॉक|\b(grow|expand)\b|increase (my |the )?(sales|business)|(sales|business|dhandha|dhanda|bikri|धंधा|धंधे|बिक्री).{0,12}(badh|बढ़|बढा)/i;
+const NOT_GROW = /fee|rent|charge|किराया|emi|कट|\bkat\b/i;
+const LOAN_GROW_ASK = ["अगर आपको stock बढ़ाना हो तो Paytm पर loan का option भी है। दिखाऊँ?", "If you want to stock up, there is a loan option through Paytm. Shall I show you?"] as const;
+const LOAN_GROW_NO = ["जी, कोई बात नहीं। और कुछ बताऊँ?", "No problem. Anything else?"] as const;
 const FALLBACK = "जी, यह पक्का आँकड़ा अभी मेरे पास नहीं है। और कुछ बताऊँ?";
 const NO_SPLITTING = "जी, fee बचाने के तरीकों पर मैं सलाह नहीं दे सकती। कोई और सवाल हो तो बताइए।";
 // Nobody ends a sentence with a lone "जी" or "ji". The model does when told to be respectful, so code removes it.
@@ -121,7 +129,7 @@ interface ConversationState {
   outcome: OutcomeKind | null;
   summary: string;
   quiet?: boolean;
-  loan?: "asked" | "yes" | "no";
+  loan?: "asked" | "growAsked" | "yes" | "no";
   memory?: string;
   promise?: string;
   input: LLMItem[];
@@ -282,6 +290,16 @@ export class Conversation {
       return;
     }
 
+    // On a yes, or on any question about it, the model answers with proposeLoan. Only a no closes it.
+    if (this.state.loan === "growAsked") {
+      const no = NO.test(userText) && !YES.test(userText);
+      this.state.loan = no ? "no" : "yes";
+      if (no) {
+        yield this.fixed(LOAN_GROW_NO, english);
+        return;
+      }
+    }
+
     if (this.state.loan === "asked") {
       const yes = YES.test(userText) && !NO.test(userText);
       this.state.loan = yes ? "yes" : "no";
@@ -390,7 +408,7 @@ export class Conversation {
         // A silent model still owes the merchant the reason, taken from the brief.
         const { batteryAlerts7Days: alerts, feePlusGstInr: total, feeInr: fee, gstInr: gst } = this.brief.facts;
         const told = this.transcript.some((t) => t.role === "agent" && t.text.includes(String(total)));
-        const figures = total && !told ? (english ? `Our record shows ₹${total} deducted: fee ₹${fee} and GST ₹${gst}. ` : `जी, हमारे record में ₹${total} कटे हैं: fee ₹${fee} और GST ₹${gst}। `) : "";
+        const figures = total && !told && !this.actions.includes("acceptLoan") ? (english ? `Our record shows ₹${total} deducted: fee ₹${fee} and GST ₹${gst}. ` : `जी, हमारे record में ₹${total} कटे हैं: fee ₹${fee} और GST ₹${gst}। `) : "";
         const reason = figures || (said.length === 0 && alerts ? (english ? `I can see ${alerts} battery alerts in the last 7 days. ` : `जी, पिछले 7 दिन में ${alerts} battery alerts आए हैं। `) : "");
         const line = reason + (reason ? confirmations.join(" ").replace(/^जी, /, "") : confirmations.join(" "));
         this.state.input.push({ role: "assistant", content: line });
@@ -398,7 +416,7 @@ export class Conversation {
         yield line;
         return;
       }
-      const offer = await this.loanAsk(english);
+      const offer = (await this.growthAsk(english, said.length > 0 && !/[?？]\s*$/.test(said.at(-1) ?? ""))) ?? (await this.loanAsk(english));
       if (offer) {
         yield offer;
         return;
@@ -465,6 +483,20 @@ export class Conversation {
     const monthly = Number(this.brief.facts.collections30DaysInr ?? 0);
     const value = shopValue(m, monthly, TODAY - m.onboardDay, 0);
     await this.deps.sql.run("INSERT INTO leads (merchant_id, kind, why, value_inr, status, created_at) VALUES (?, 'business_loan', ?, ?, 'new', ?) ON CONFLICT (merchant_id) DO NOTHING", [m.id, why, value.loanYear, new Date().toISOString()]);
+  }
+
+  private async growthAsk(english: boolean, answered: boolean) {
+    const last = this.transcript.filter((t) => t.role === "merchant").at(-1)?.text ?? "";
+    if (!answered || this.state.loan || !GROW.test(last) || NOT_GROW.test(last) || this.brief.problem.startsWith("loan_")) return null;
+    if (this.actions.some((a) => a === "checkLoan" || a === "setReducedEmi" || a === "proposeLoan" || a === "acceptLoan")) return null;
+    const id = this.brief.merchantId;
+    // A hard time at home, or already asked: one question in 60 days, whatever they answered.
+    if (await this.deps.sql.get("SELECT 1 AS ok FROM notes WHERE merchant_id = ? AND kind IN ('care', 'loan_mentioned') AND until_day >= ?", [id, TODAY])) return null;
+    const m = await this.deps.core.merchant(id);
+    if (!canMentionLoan(m, buildFeatures(m, TODAY))) return null;
+    this.state.loan = "growAsked";
+    await addNote(this.deps.sql, id, "loan_mentioned", "Shop asked how to grow. Asked once if it wanted to see the loan option.", TODAY, OFFER.cooldownDays);
+    return this.fixed(LOAN_GROW_ASK, english);
   }
 
   // Only a shop whose problem is solved, and whose record supports it, is asked. Asked once, and a person does the selling.

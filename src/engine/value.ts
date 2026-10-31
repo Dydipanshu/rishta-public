@@ -43,5 +43,6 @@ export function discountYear(rent: number) {
 
 // What a shop kept by this move earns Paytm, after the moves that come with it.
 export function keptWorth(approachId: string, value: number, rent: number) {
+  if (approachId.startsWith("loan_")) return VALUE.financialRevenuePerCustomerYear;
   return approachId === "rent_right_size_plan" ? value - COST.discountTakeRate * discountYear(rent) : value;
 }

@@ -25,6 +25,11 @@ export const PLAYBOOK: Partial<Record<ReasonCode, Approach[]>> = {
     { id: "settlement_status_and_ticket", label: "Status and ticket", guidance: "Give the settlement status from the facts and raise a ticket for the delay." },
     { id: "settlement_offer_human", label: "Offer a person", guidance: "Acknowledge the delay and offer a callback from a person." },
   ],
+  // A win here is a loan taken and still being paid 30 days later, not a yes.
+  loan_opportunity: [
+    { id: "loan_stock_first", label: "Start from next month's stock", guidance: "The shop's sales are growing and it has no loan. This whole conversation is about that loan, so any question, however vague, such as kitna milega, means the loan, and EMI zyada hai means the daily amount is too high. Call proposeLoan in your first turn. Tell them in one line why now: their sales are up salesGrowthPct% and a month's stock costs about stockNeedInr. Then offer the first option with its daily amount and total repayable. If the daily amount feels high, offer the longer option. Never push. On a clear yes call acceptLoan." },
+    { id: "loan_amount_first", label: "Start from the amount", guidance: "The shop's sales are growing and it has no loan. This whole conversation is about that loan, so any question, however vague, such as kitna milega, means the loan, and EMI zyada hai means the daily amount is too high. Call proposeLoan in your first turn. Open with the amount of the first option, its daily amount and total repayable, and only then say why now. If the daily amount feels high, offer the longer option. Never push. On a clear yes call acceptLoan." },
+  ],
 };
 
 // Fixed routes that sit outside the learning loop.
@@ -35,7 +40,6 @@ export const FIXED_ROUTES: Record<string, Approach> = {
   inbound_service: { id: "inbound_service", label: "Shop came to us", guidance: "The shop pressed the button itself. Listen, answer what they ask, and fix what you can. Do not bring up anything they did not ask about." },
   follow_up_fix: { id: "follow_up_fix", label: "Check back", guidance: "Ask one simple question: did the promised fix work? On any clear answer call confirmFix. If it did not work, a person takes over." },
   loan_hardship: { id: "loan_hardship", label: "Understand, then ease", guidance: "A shop has missed loan payments. Be kind and never pressure. Ask what happened, then call checkLoan. If genuineHardship is true, say the sales drop shows it, and offer reducedEmiInr for reliefMonths. On a clear yes call setReducedEmi. If it is false, say so gently and offer a person." },
-  loan_offer: { id: "loan_offer", label: "Offer working capital", guidance: "The shop's sales are growing and it has no loan. This whole conversation is about that loan, so any question, however vague, such as kitna milega, means the loan, and EMI zyada hai means the daily amount is too high. Call proposeLoan in your first turn. Tell them in one line why now: their sales are up salesGrowthPct% and a month's stock costs about stockNeedInr. Then offer the first option with its daily amount and total repayable. If the daily amount feels high, offer the longer option. Never push. On a clear yes call acceptLoan." },
   app_checkin: { id: "app_checkin", label: "App check-in", guidance: "Check in politely and learn what changed for the shop." },
 };
 

@@ -1,4 +1,5 @@
-import { loanCase, stockPlan } from "./loans.js";
+import { MAX_LOAN_SHARE } from "../../config/loans.js";
+import { loanCase, loanGate, stockPlan } from "./loans.js";
 import { FIXED_ROUTES, PLAYBOOK, approachById } from "../../config/playbook.js";
 import { MAX_MONTHLY_DISCOUNT_INR } from "../../config/plans.js";
 import { buildFeatures } from "../features/buildFeatures.js";
@@ -34,7 +35,7 @@ const GOALS: Partial<Record<ReasonCode, string>> = {
   loan_opportunity: "Merchant understands the offer and decides freely",
 };
 
-const LOAN_WHY = { loan_overdue: "Loan payments missed; sales need checking before anything else", loan_opportunity: "Sales are growing, no loan yet, and festival stock is coming" };
+const LOAN_WHY = { loan_overdue: "Loan payments missed; sales need checking before anything else", loan_opportunity: "Sales are growing and the shop has no loan yet" };
 
 function actionsFor(problem: ReasonCode): ActionName[] {
   const always: ActionName[] = ["getMerchantSummary", "raiseTicket", "scheduleHumanCallback", "recordOutcome", "recordOptOut", "sendAppMessage", "requestDeviceReturn", "checkLoan", "proposeLoan", "acceptLoan", "setReducedEmi"];
@@ -76,7 +77,8 @@ export async function prepare(sql: Sql): Promise<RunContext> {
   const stats: Stats = new Map();
   const rows: HistoryRow[] = [];
   for (const h of history) {
-    rows.push({ segment: h.segment, arm: h.approach_id === "holdout" ? "holdout" : "contacted", kept: h.kept, n: h.n });
+    // Loan results measure take-up, not shops kept, so they say nothing about whether contact backfires.
+    if (!h.problem.startsWith("loan_")) rows.push({ segment: h.segment, arm: h.approach_id === "holdout" ? "holdout" : "contacted", kept: h.kept, n: h.n });
     if (PLAYBOOK[h.problem as ReasonCode] && h.approach_id !== "holdout" && h.approach_id !== "route") {
       addResult(stats, h.problem, h.approach_id, h.segment, h.kept === 1, h.n);
     }
@@ -102,13 +104,19 @@ interface ShardCounts {
   holdoutWatched: number;
 }
 
-function decide(m: Merchant, ctx: RunContext, seed: number, counts: ShardCounts) {
+function decide(m: Merchant, ctx: RunContext, seed: number, counts: ShardCounts, loanChecks: unknown[][]) {
   const { risk, stats, learned } = ctx;
   const f = buildFeatures(m, TODAY);
   if (f.daysSinceLastPayment >= 14) return null;
   counts.active++;
   const found = detectProblem(f);
   const loan = loanCase(m, f);
+  // Every shop big enough for an offer is recorded with the reason it got one or didn't.
+  const gate = loanGate(m, f);
+  if (gate.sized) {
+    const blocked = gate.check === "ready" && found ? ["problem", `${REASON_LABELS[found.problem]} comes first. No selling until that's solved.`] as const : null;
+    loanChecks.push([m.id, m.name, m.city, gate.check === "ready" && !blocked && m.holdout ? "control" : (blocked?.[0] ?? gate.check), blocked?.[1] ?? gate.why, f.monthlyCollections, shardOf(m.id)]);
+  }
   // Missed payments come first. A loan offer only goes to a shop with nothing wrong.
   const detected = loan && (loan === "loan_overdue" || !found) ? { problem: loan, why: LOAN_WHY[loan], thresholdHeadsUp: false } : found;
   if (!detected) return null;
@@ -134,8 +142,8 @@ function decide(m: Merchant, ctx: RunContext, seed: number, counts: ShardCounts)
 
   const worth = valueOf(m, f, TODAY);
   const headsUp = detected.thresholdHeadsUp === true;
-  const loanRoute = detected.problem === "loan_overdue" ? FIXED_ROUTES.loan_hardship : detected.problem === "loan_opportunity" ? FIXED_ROUTES.loan_offer : null;
-  const channel = loanRoute ? "soundbox" : channelFor(detected.problem, f, score, headsUp);
+  const loanRoute = detected.problem === "loan_overdue" ? FIXED_ROUTES.loan_hardship : null;
+  const channel = detected.problem.startsWith("loan_") ? "soundbox" : channelFor(detected.problem, f, score, headsUp);
   let approachId: string;
   let share: number | null = null;
   if (loanRoute) approachId = loanRoute.id;
@@ -209,6 +217,7 @@ export async function runShards(sql: Sql, core: PaytmCore, seed: number, lo: num
   await sql.tx(async (tx) => {
     await tx.run("DELETE FROM briefs WHERE shard >= ? AND shard <= ?", [lo, hi]);
     await tx.run("DELETE FROM left_alone WHERE shard >= ? AND shard <= ?", [lo, hi]);
+    await tx.run("DELETE FROM loan_checks WHERE shard >= ? AND shard <= ?", [lo, hi]);
   });
   let after = "";
   for (;;) {
@@ -217,9 +226,10 @@ export async function runShards(sql: Sql, core: PaytmCore, seed: number, lo: num
     after = page.at(-1)!.id;
     const briefs: unknown[][] = [];
     const left: unknown[][] = [];
+    const loanChecks: unknown[][] = [];
     for (const m of page) {
       counts.checked++;
-      const d = decide(m, context, seed, counts);
+      const d = decide(m, context, seed, counts, loanChecks);
       if (d?.skip) {
         counts.leftAlone++;
         left.push([d.skip.m.id, d.skip.m.name, d.skip.m.city, d.skip.kind, JSON.stringify(d.skip.reasons), d.skip.m.isDemo ? 1 : 0, shardOf(m.id)]);
@@ -232,6 +242,7 @@ export async function runShards(sql: Sql, core: PaytmCore, seed: number, lo: num
     await sql.tx(async (tx) => {
       await tx.bulk("briefs", ["brief_id", "merchant_id", "sort_key", "json", "meta", "channel", "value", "shard"], briefs);
       await tx.bulk("left_alone", ["merchant_id", "name", "city", "kind", "reasons", "is_demo", "shard"], left);
+      await tx.bulk("loan_checks", ["merchant_id", "name", "city", "kind", "why", "sales", "shard"], loanChecks);
     });
   }
   await sql.tx(async (tx) => {
@@ -255,6 +266,14 @@ export async function finalizeRun(sql: Sql, ctx?: RunContext): Promise<TodayPlan
     const extra = await tx.all<{ brief_id: string; json: string }>("SELECT brief_id, json FROM briefs WHERE channel = 'salesperson_visit' ORDER BY value DESC LIMIT 1000000 OFFSET ?", [VISITS_PER_DAY]);
     for (const b of extra) {
       await tx.run("UPDATE briefs SET channel = 'app', json = ? WHERE brief_id = ?", [JSON.stringify({ ...JSON.parse(b.json), channel: "app" }), b.brief_id]);
+    }
+    // Loans never crowd out service. Demo shops sort first; the rest wait for a later night.
+    const isLoan = "json LIKE '%\"problem\":\"loan_opportunity\"%'";
+    const service = await tx.get<{ n: number }>(`SELECT COUNT(*) AS n FROM briefs WHERE channel IN ('soundbox', 'app') AND NOT (${isLoan})`);
+    const cap = Math.floor((Number(service?.n ?? 0) * MAX_LOAN_SHARE) / (1 - MAX_LOAN_SHARE));
+    for (const b of await tx.all<{ brief_id: string; merchant_id: string }>(`SELECT brief_id, merchant_id FROM briefs WHERE ${isLoan} ORDER BY sort_key DESC LIMIT 1000000 OFFSET ?`, [cap])) {
+      await tx.run("DELETE FROM briefs WHERE brief_id = ?", [b.brief_id]);
+      await tx.run("UPDATE loan_checks SET kind = 'capped', why = 'Ready, but service comes first tonight.' WHERE merchant_id = ?", [b.merchant_id]);
     }
     const byChannel = new Map((await tx.all<{ channel: string; n: number }>("SELECT channel, COUNT(*) AS n FROM briefs GROUP BY channel")).map((r) => [r.channel, Number(r.n)]));
     const n = (c: string) => byChannel.get(c) ?? 0;

@@ -120,6 +120,35 @@ async function loans(sql: Sql) {
   return { eased: Number(of("emi_reset")?.n ?? 0), backOnTrackInr: Number(of("emi_reset")?.total ?? 0), sold: Number(of("loan_accepted")?.n ?? 0), soldInr: Number(of("loan_accepted")?.total ?? 0) };
 }
 
+// The whole loan pipeline: tonight's checks, what happened in conversations, and the shops held back on purpose.
+async function loanFunnel(sql: Sql) {
+  const checks = await sql.all<{ kind: string; n: number }>("SELECT kind, COUNT(*) AS n FROM loan_checks GROUP BY kind");
+  const count = (...kinds: string[]) => checks.filter((c) => kinds.includes(c.kind)).reduce((s, c) => s + Number(c.n), 0);
+  const reached = await sql.get<{ n: number }>("SELECT COUNT(*) AS n FROM briefs WHERE sort_key >= 0 AND json LIKE '%\"problem\":\"loan_opportunity\"%'");
+  const talked = await sql.get<{ n: number }>("SELECT COUNT(*) AS n FROM outcomes o JOIN briefs b ON b.brief_id = o.brief_id WHERE b.json LIKE '%\"problem\":\"loan_opportunity\"%'");
+  const sent = await sql.get<{ n: number; total: number }>("SELECT COUNT(*) AS n, COALESCE(SUM(amount_inr), 0) AS total FROM loan_actions WHERE kind = 'loan_accepted'");
+  const leads = await sql.all<{ status: string; n: number }>("SELECT status, COUNT(*) AS n FROM leads GROUP BY status");
+  const lead = (s: string) => Number(leads.find((l) => l.status === s)?.n ?? 0);
+  const noTiming = await sql.get<{ n: number; kept: number }>("SELECT COUNT(*) AS n, COALESCE(SUM(kept), 0) AS kept FROM contact_history WHERE approach_id = 'no_timing_rule'");
+  const mentioned = await sql.get<{ n: number }>("SELECT COUNT(*) AS n FROM notes WHERE kind = 'loan_mentioned'");
+  const heldBack = await sql.all("SELECT merchant_id, name, city, kind, why FROM loan_checks WHERE kind IN ('ticket', 'problem', 'falling', 'repayment') ORDER BY CASE kind WHEN 'repayment' THEN 0 WHEN 'falling' THEN 1 WHEN 'ticket' THEN 2 ELSE 3 END, sales DESC LIMIT 6");
+  return {
+    bigEnough: count("ready", "capped", "control", "ticket", "problem", "falling", "repayment", "growth"),
+    rightMoment: count("ready", "capped", "control"),
+    reached: Number(reached?.n ?? 0),
+    control: count("control"),
+    capped: count("capped"),
+    held: { ticket: count("ticket"), problem: count("problem"), falling: count("falling"), repayment: count("repayment"), growth: count("growth") },
+    heldBack,
+    talked: Number(talked?.n ?? 0),
+    sent: Number(sent?.n ?? 0),
+    sentInr: Number(sent?.total ?? 0),
+    mentioned: Number(mentioned?.n ?? 0),
+    leads: { waiting: lead("new"), sentToLender: lead("sent_to_lender"), notInterested: lead("not_interested") },
+    noTiming: { n: Number(noTiming?.n ?? 0), rate: Number(noTiming?.n ?? 0) ? Number(noTiming!.kept) / Number(noTiming!.n) : null },
+  };
+}
+
 async function guardrails(sql: Sql) {
   const rows = await sql.all<{ kind: string; n: number }>("SELECT kind, COUNT(*) AS n FROM audit_log GROUP BY kind");
   const count = (a: string) => Number(rows.find((r) => r.kind === a)?.n ?? 0);
@@ -145,7 +174,7 @@ async function done(sql: Sql) {
   const inProgress = byAi.filter((o) => o.outcome === "ticket_raised").length;
   const promises = await sql.get("SELECT SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) AS waiting, SUM(CASE WHEN status = 'kept' THEN 1 ELSE 0 END) AS kept, SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed FROM promises");
   const tickets = await sql.get("SELECT COUNT(*) AS c FROM tickets WHERE live = 1");
-  const history = await sql.get("SELECT SUM(CASE WHEN approach_id <> 'holdout' THEN 1 ELSE 0 END) AS contacted, AVG(CASE WHEN approach_id <> 'holdout' THEN kept END) AS keep, AVG(CASE WHEN approach_id = 'holdout' THEN kept END) AS control, SUM(CASE WHEN approach_id = 'holdout' THEN 1 ELSE 0 END) AS controlN FROM contact_history WHERE kept IS NOT NULL AND true_cause <> 'live'");
+  const history = await sql.get("SELECT SUM(CASE WHEN approach_id <> 'holdout' THEN 1 ELSE 0 END) AS contacted, AVG(CASE WHEN approach_id <> 'holdout' THEN kept END) AS keep, AVG(CASE WHEN approach_id = 'holdout' THEN kept END) AS control, SUM(CASE WHEN approach_id = 'holdout' THEN 1 ELSE 0 END) AS controlN FROM contact_history WHERE kept IS NOT NULL AND true_cause <> 'live' AND problem NOT LIKE 'loan_%'");
   return {
     simulated: { contacted: Number(history?.contacted ?? 0), keepRate: Number(history?.keep ?? 0), controlRate: Number(history?.control ?? 0), controlN: Number(history?.controlN ?? 0) },
     conversations: byAi.length,
@@ -196,7 +225,7 @@ async function humanWork(sql: Sql, core: PaytmCore) {
     return { merchantId: brief.merchantId, briefId: brief.briefId, problem: brief.problem, closed: closed.has(brief.merchantId), name: meta.name, city: meta.city, why: meta.why, say: VISIT_OPENERS[brief.problem as ReasonCode] ?? approachById(brief.approachId)?.guidance ?? "", history };
   }));
   const leads = await sql.all("SELECT l.*, m.name, m.city FROM leads l JOIN merchants m ON m.id = l.merchant_id ORDER BY l.created_at DESC");
-  const leadCards = await Promise.all(leads.map(async (l) => ({ merchantId: l.merchant_id, name: l.name, city: l.city, why: l.why, valueInr: l.value_inr, history: await timeline(sql, l.merchant_id) })));
+  const leadCards = await Promise.all(leads.map(async (l) => ({ merchantId: l.merchant_id, name: l.name, city: l.city, why: l.why, valueInr: l.value_inr, closed: l.status !== "new", say: "They said yes to hearing about a loan. Go through the options, the daily amount and the total. The lender decides, so promise nothing.", history: await timeline(sql, l.merchant_id) })));
   return { needsHuman: [...live, ...waiting], visits, leads: leadCards };
 }
 
@@ -209,10 +238,12 @@ export async function consoleView(sql: Sql, core: PaytmCore) {
     sql.all("SELECT * FROM left_alone ORDER BY is_demo DESC, kind DESC, merchant_id LIMIT 12"),
   ]);
   return {
-    ledger: await ledger(sql, playbookPanel),
+    // Keeping shops is the headline. Loan results live on their own page, in good loans rather than rupees.
+    ledger: await ledger(sql, playbookPanel.filter((p) => !p.problem.startsWith("loan_"))),
     atStake: await atStake(sql),
     guardrails: await guardrails(sql),
     loans: await loans(sql),
+    loanFunnel: await loanFunnel(sql),
     activity: await activity(sql),
     assumptions: { cost: COST },
     plan: parse(plan!.json),

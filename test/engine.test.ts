@@ -1,3 +1,7 @@
+import { canMentionLoan, loanCase, loanGate } from "../src/engine/loans.js";
+import { buildFeatures } from "../src/features/buildFeatures.js";
+import { simulate } from "../src/sim/simulator.js";
+import { TODAY as BENCH_TODAY } from "../src/sim/types.js";
 import { rmSync } from "node:fs";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { feeOn } from "../config/fees.js";
@@ -67,6 +71,25 @@ describe("demo plan (needs pnpm seed)", () => {
     const row = (await db.get<{ kind: string; reasons: string }>("SELECT kind, reasons FROM left_alone WHERE merchant_id = 'M006'"))!;
     expect(row.kind).toBe("rule + learned");
     expect(JSON.parse(row.reasons)).toHaveLength(2);
+  });
+});
+
+describe("loan rules", () => {
+  const merchant = simulate(7, 60, 0.15).merchants.find((x) => x.id === "M001")!;
+  const features = buildFeatures(merchant, BENCH_TODAY);
+
+  it("says no to a shop with open tickets, and says why", () => {
+    const gate = loanGate(merchant, { ...features, openTickets: 2 });
+    expect(gate.check).toBe("ticket");
+    expect(gate.why).toContain("2 open tickets");
+    expect(loanCase(merchant, { ...features, openTickets: 2 })).toBeNull();
+  });
+
+  it("lets a shop asking how to grow hear about a loan, unless it opted out, is in the control group, or can't afford it", () => {
+    expect(canMentionLoan(merchant, features)).toBe(true);
+    expect(canMentionLoan({ ...merchant, optedOut: true }, features)).toBe(false);
+    expect(canMentionLoan({ ...merchant, holdout: true }, features)).toBe(false);
+    expect(canMentionLoan(merchant, { ...features, monthlyCollections: 1000 })).toBe(false);
   });
 });
 

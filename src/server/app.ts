@@ -298,6 +298,15 @@ export async function buildApp(d: AppDeps) {
     const row = await briefRow(req.params.id);
     return row ? row.brief : reply.code(404).send({ error: "Nothing planned today" });
   });
+  app.post("/api/leads/:id", { preHandler: serviceAuth }, async (req, reply) => {
+    const { status } = z.object({ status: z.enum(["sent_to_lender", "not_interested"]) }).parse(req.body);
+    const { id } = req.params as { id: string };
+    if ((await sql.run("UPDATE leads SET status = ? WHERE merchant_id = ?", [status, id])) === 0) return reply.code(404).send({ error: "No such lead" });
+    await audit(sql, id, "lead_closed", { status });
+    await ui({ type: "changed", merchantId: id });
+    return { ok: true };
+  });
+
   app.post("/v1/outcomes", { preHandler: serviceAuth }, async (req, reply) => {
     const parsed = Outcome.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: z.prettifyError(parsed.error) });

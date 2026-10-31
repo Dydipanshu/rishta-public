@@ -37,7 +37,9 @@ export async function settleOutcomes(sql: Sql, core: PaytmCore, seed: number, as
   const settled: Settled[] = [];
   for (const c of due) {
     const resultsBefore = await resultCount(sql, c.problem, c.approach_id);
-    const kept = await core.isActive(c.merchant_id, asOfDay);
+    const active = await core.isActive(c.merchant_id, asOfDay);
+    const tookLoan = c.problem === "loan_opportunity" ? !!(await sql.get("SELECT 1 AS ok FROM loan_actions WHERE merchant_id = ? AND kind = 'loan_accepted'", [c.merchant_id])) : true;
+    const kept = active && tookLoan;
     const changed = await sql.run("UPDATE contact_history SET kept = ? WHERE merchant_id = ? AND day = ? AND approach_id = ? AND kept IS NULL", [+kept, c.merchant_id, c.day, c.approach_id]);
     if (changed === 0) continue;
     await audit(sql, c.merchant_id, "settled", { approachId: c.approach_id, kept });

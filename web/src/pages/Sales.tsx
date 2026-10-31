@@ -34,6 +34,9 @@ function Job({ job, kind, n, open, toggle, onDone }: { job: any; kind: Kind; n: 
           {job.say && <p className="text-sm"><span className="font-semibold">Say this: </span>{job.say}</p>}
           {job.summary && <p className="mt-2 text-sm text-muted">{job.summary}</p>}
           <div className="mt-2 text-sm"><span className="font-semibold">Already tried: </span>{job.history?.length ? <ul className="list-disc pl-4 text-muted">{job.history.map((h: any, i: number) => <li key={i}>{h.when}: {h.text}</li>)}</ul> : <span className="text-muted">Nothing yet</span>}</div>
+          {kind === "lead" && !job.closed && (
+            <div className="mt-3 flex gap-2">{([["sent_to_lender", "Sent to lender"], ["not_interested", "Not interested"]] as const).map(([status, text]) => <button key={status} onClick={() => void fetch(`/api/leads/${job.merchantId}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ status }) }).then(onDone)} className="flex-1 rounded-lg bg-paytm-deep py-2.5 text-sm font-semibold text-white">{text}</button>)}</div>
+          )}
           {job.closed ? <p className="mt-3 font-semibold text-kept">✓ Result sent to Rishta</p> : job.briefId && (
             <div className="mt-3 space-y-2">
               <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="What did the shop say?" aria-label={`What ${job.name} said`} className="w-full rounded-lg border border-line px-3 py-2" />

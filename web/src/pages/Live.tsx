@@ -59,7 +59,8 @@ function Picker({ selected, pick }: { selected: string; pick: (id: string) => vo
 }
 
 function Inside({ shop, merchant, nudge, nudgeError }: { shop: any; merchant: any; nudge: () => void; nudgeError: string }) {
-  if (!shop || !merchant) return <div className="w-full p-4"><Skeleton h={320} /></div>;
+  // Same box as the loaded panel, otherwise the phone jumps while this loads.
+  if (!shop || !merchant) return <aside className="min-h-0 w-full overflow-y-auto border-l border-line bg-white p-4 lg:w-[22rem] lg:shrink-0"><Skeleton h={320} /></aside>;
   const live = shop.live;
   const actions: string[] = (live?.actions ?? []).filter((a: string) => a !== "recordOutcome");
   const canNudge = shop.brief && ["soundbox", "app"].includes(shop.brief.channel) && !shop.left && !shop.blocked && !shop.outcome;

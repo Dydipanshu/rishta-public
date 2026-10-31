@@ -13,4 +13,10 @@ export const FIX_PROBABILITY: Record<string, Partial<Record<ReasonCode, number>>
   settlement_offer_human: { settlement_delay: 0.3 },
 };
 
+// Loans: the chance a shop takes the loan, by how it was offered. Loan rows only, so these never touch the shops-kept history.
+export const LOAN_TAKE_UP: Record<string, number> = { loan_stock_first: 0.24, loan_amount_first: 0.12, no_timing_rule: 0.08, holdout: 0.03 };
+// The chance a loan goes bad within 30 days at a good moment and at a bad one, on top of shops that shut.
+export const LOAN_BAD_AT_GOOD_MOMENT = 0.04;
+export const LOAN_BAD_AT_BAD_MOMENT = 0.3;
+
 export const BACKFIRE_SEGMENT = "T2-fresh";

@@ -103,6 +103,7 @@ await page.getByText("30 days later").waitFor({ timeout: 8000 });
 await page.screenshot({ path: `${SHOTS}/result.png` });
 check(true, "conversation finished and the result settled");
 await next("See the proof");
+await next("See the loan pipeline");
 await next("Why shops leave");
 await next("The team");
 check((await body()).length > 0, "reached the last page");

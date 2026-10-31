@@ -1,5 +1,5 @@
 import qrcode from "qrcode-generator";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useEvents } from "../hooks/useEvents";
 import { usePushToTalk, type Line } from "../hooks/usePushToTalk";
 
@@ -100,7 +100,8 @@ export default function MerchantPhone({ shopId, tips = [], onTip, free }: { shop
     }
   });
 
-  useEffect(() => {
+  // Before paint, so a reload never flashes Home on its way back to the conversation.
+  useLayoutEffect(() => {
     if (nudge || lines.length > 0) setView("chat");
   }, [nudge, lines.length]);
   useEffect(() => {

@@ -10,7 +10,7 @@ import { resetLive } from "../src/data/reset.js";
 import { SQLITE_PATH, openSql } from "../src/data/sql.js";
 import { saveSim } from "../src/data/store.js";
 import type { ReasonCode } from "../src/engine/reasons.js";
-import { BACKFIRE_SEGMENT, FIX_PROBABILITY } from "../src/sim/groundTruth.js";
+import { BACKFIRE_SEGMENT, FIX_PROBABILITY, LOAN_TAKE_UP } from "../src/sim/groundTruth.js";
 import { simulate } from "../src/sim/simulator.js";
 import { KEEP_WINDOW_DAYS, type Merchant } from "../src/sim/types.js";
 
@@ -72,8 +72,9 @@ console.log(`Gate 4, leave alone: learned ${JSON.stringify(planned)}, planted ${
 let winnersFound = 0;
 const problems = Object.keys(PLAYBOOK);
 for (const problem of problems) {
-  const shares = sim.allocations.filter((a) => a.week === lastWeek && a.problem === problem).sort((a, b) => b.share - a.share);
-  const truth = Object.entries(FIX_PROBABILITY).filter(([, v]) => v[problem as ReasonCode] !== undefined).sort((a, b) => b[1][problem as ReasonCode]! - a[1][problem as ReasonCode]!);
+  const week = Math.max(...sim.allocations.filter((a) => a.problem === problem).map((a) => a.week));
+  const shares = sim.allocations.filter((a) => a.week === week && a.problem === problem).sort((a, b) => b.share - a.share);
+  const truth = (problem === "loan_opportunity" ? Object.entries(LOAN_TAKE_UP).filter(([id]) => id.startsWith("loan_")).map(([id, p]) => [id, { [problem]: p }] as [string, Partial<Record<ReasonCode, number>>]) : Object.entries(FIX_PROBABILITY)).filter(([, v]) => v[problem as ReasonCode] !== undefined).sort((a, b) => b[1][problem as ReasonCode]! - a[1][problem as ReasonCode]!);
   if (shares[0]?.approachId === truth[0]?.[0]) winnersFound++;
 }
 await db.run("DELETE FROM kv WHERE key = 'report_card'");

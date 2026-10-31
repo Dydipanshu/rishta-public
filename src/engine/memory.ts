@@ -16,8 +16,8 @@ export async function closePromises(sql: Sql, merchantId: string, status: "kept"
   await sql.run("UPDATE promises SET status = ?, closed_at = ? WHERE merchant_id = ? AND status = 'open'", [status, now(), merchantId]);
 }
 
-export async function addNote(sql: Sql, merchantId: string, kind: string, text: string, day = TODAY) {
-  await sql.run("INSERT INTO notes (merchant_id, kind, text, day, until_day) VALUES (?, ?, ?, ?, ?)", [merchantId, kind, text, day, day + CARE_DAYS]);
+export async function addNote(sql: Sql, merchantId: string, kind: string, text: string, day = TODAY, lastsDays = CARE_DAYS) {
+  await sql.run("INSERT INTO notes (merchant_id, kind, text, day, until_day) VALUES (?, ?, ?, ?, ?)", [merchantId, kind, text, day, day + lastsDays]);
 }
 
 export const careNote = (sql: Sql, merchantId: string, day = TODAY) => sql.get<{ text: string }>("SELECT text FROM notes WHERE merchant_id = ? AND kind = 'care' AND until_day >= ? ORDER BY id DESC LIMIT 1", [merchantId, day]);

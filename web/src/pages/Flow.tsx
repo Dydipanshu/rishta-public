@@ -20,7 +20,7 @@ const SERIES = ["#0369a1", "#38bdf8", "#cbd5e1"];
 const TONE: Record<string, Tone> = { good: "good", plain: "plain", bad: "bad" };
 const OUTCOME: Record<string, [string, "good" | "plain" | "bad"]> = {
   stayed: ["Solved, the shop understood", "good"], plan_changed: ["Plan changed", "good"], ticket_raised: ["Ticket raised, not solved until the shop says so", "plain"], fix_confirmed: ["Shop confirmed the fix worked", "good"],
-  emi_reset: ["Smaller EMI agreed", "good"], loan_accepted: ["Loan sent for approval", "good"],
+  emi_reset: ["Smaller EMI agreed", "good"], loan_accepted: ["Loan request sent, the lender decides", "good"],
   return_requested: ["Device return booked", "bad"], later: ["Shop was busy, left in peace", "plain"], undecided: ["Not settled yet", "plain"],
   handed_off: ["Passed to a person", "plain"], no_response: ["Nothing needed", "plain"], opted_out: ["Opted out", "bad"], left: ["Left", "bad"],
 };
@@ -189,15 +189,16 @@ function Proof({ v }: { v: View }) {
   const lift = pb.lift;
   const low = lift ? Math.max(0, Math.round((lift.points - lift.margin) * 100)) : 0;
   const high = lift ? Math.round((lift.points + lift.margin) * 100) : 0;
+  const isLoan = problem === "loan_opportunity";
   return (
     <div className="space-y-4">
-      <PageHead eyebrow="Measured against a no-contact group" title={lift?.proven ? `"${lift.approach}" keeps ${low} to ${high} more shops in every 100 than doing nothing.` : lift ? `Rishta prefers "${lift.approach}", but can't yet prove it beats doing nothing.` : "No results yet."} sub={lift && `Best estimate ${Math.round(lift.points * 100)} more per 100, ±${Math.round(lift.margin * 100)}, against ${pb.holdout.n} shops nobody contacted. Simulated test data with known answers.`} />
+      <PageHead eyebrow="Measured against a no-contact group" title={lift?.proven ? `"${lift.approach}" ${isLoan ? "gets" : "keeps"} ${low} to ${high} more ${isLoan ? "good loans" : "shops"} in every 100 than doing nothing.` : lift ? `Rishta prefers "${lift.approach}", but can't yet prove it beats doing nothing.` : "No results yet."} sub={lift && `Best estimate ${Math.round(lift.points * 100)} more per 100, ±${Math.round(lift.margin * 100)}, against ${pb.holdout.n} shops nobody contacted. Simulated test data with known answers.`} />
       <Ledger rows={v.ledger} />
       <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Problem">
         {v.playbook.map((p: any) => <button key={p.problem} role="tab" aria-selected={p.problem === problem} onClick={() => setProblem(p.problem)} className={`seg ${p.problem === problem ? "seg-on" : ""}`}>{p.label}</button>)}
       </div>
       <div className="grid gap-4 md:grid-cols-2">
-        <Card title="Shops still active after 30 days">
+        <Card title={isLoan ? "Took a loan and still paying after 30 days" : "Shops still active after 30 days"}>
           <div className="space-y-3">
             {rows.map((a: any) => (
               <div key={a.id}>
@@ -223,6 +224,70 @@ function Proof({ v }: { v: View }) {
           </div>
         </Card>
       )}
+    </div>
+  );
+}
+
+function Loans({ v, open }: { v: View; open: (id: string) => void }) {
+  const f = v.loanFunnel;
+  const pb = v.playbook.find((p: any) => p.problem === "loan_opportunity");
+  const best = [...(pb?.approaches ?? [])].sort((a: any, b: any) => (b.keepRate ?? 0) - (a.keepRate ?? 0))[0];
+  const lift = pb?.lift;
+  const heldTotal = f.held.ticket + f.held.problem + f.held.falling + f.held.repayment;
+  const stages: [string, number, string][] = [
+    ["Shops checked tonight", v.plan.checked, "Every shop, every night"],
+    ["Big enough for an offer", f.bigEnough, "No loan yet, steady sales"],
+    ["Right moment", f.rightMoment, "Sales up, nothing broken"],
+    ["Rishta raises it", f.reached, `${f.capped} ready shops wait so service comes first, ${f.control} are the control group`],
+  ];
+  const rows = [
+    { label: "Rishta, at the right moment", rate: best?.keepRate ?? null, n: best?.n ?? 0, color: SERIES[0] },
+    { label: "Same offer, timing rules off", rate: f.noTiming.rate, n: f.noTiming.n, color: SERIES[1] },
+    { label: "Nobody contacted them", rate: pb?.holdout.keepRate ?? null, n: pb?.holdout.n ?? 0, color: "#94a3b8" },
+  ];
+  return (
+    <div className="space-y-4">
+      <PageHead eyebrow="Service earns the right to sell" title={`${num(f.bigEnough)} shops could be pitched tonight. Rishta raises it with ${num(f.reached)}.`} sub={`${num(heldTotal)} are held back because now would hurt them. Loans are capped at 10% of conversations, so service comes first. The lender makes every final decision.`} />
+      <Card title="Tonight's pipeline">
+        <ol className="space-y-2.5">
+          {stages.map(([label, n, hint]) => (
+            <li key={label}>
+              <div className="flex justify-between text-sm"><span className="font-semibold">{label}</span><span className="num font-semibold">{num(n)}</span></div>
+              <div className="mt-1 h-2 rounded-full bg-idle"><div className="h-full rounded-full bg-paytm-deep" style={{ width: `${Math.max(1, (n / v.plan.checked) * 100)}%` }} /></div>
+              <div className="text-xs text-muted">{hint}</div>
+            </li>
+          ))}
+        </ol>
+        <div className="mt-4 grid grid-cols-2 gap-3 border-t border-line pt-3 md:grid-cols-4">
+          <Stat label="Loan conversations today" value={f.talked} hint={`${f.mentioned} shops asked how to grow`} />
+          <Stat label="Requests sent, lender decides" value={f.sent} hint={`₹${num(f.sentInr)}`} tone="brand" />
+          <Stat label="Warm leads waiting" value={f.leads.waiting} hint="With the sales team" />
+          <Stat label="Passed to the lender by sales" value={f.leads.sentToLender} hint={`${f.leads.notInterested} not interested`} tone="good" />
+        </div>
+      </Card>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card title="Took a loan and still paying 30 days later" action={<SimTag />}>
+          <div className="space-y-3">
+            {rows.map((a) => (
+              <div key={a.label}>
+                <div className="flex justify-between text-sm"><span>{a.label}</span><span className="num font-semibold">{pct(a.rate)} <span className="font-normal text-muted">of {num(a.n)}</span></span></div>
+                <div className="mt-1 h-2 rounded-full bg-idle"><div className="h-full rounded-full" style={{ width: pct(a.rate), background: a.color }} /></div>
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-sm text-muted">{lift?.proven ? `${Math.round((lift.points - lift.margin) * 100)} to ${Math.round((lift.points + lift.margin) * 100)} more good loans per 100 than doing nothing.` : "Not proven against doing nothing yet: too few shops in the control group."} A yes doesn't count. Only a loan still being paid does. Timing rules were switched off only on the test bench, never in production.</p>
+        </Card>
+        <Card title="Which opening works" action={<SimTag />}>
+          {pb && <Weeks approaches={pb.approaches} />}
+          <div className="mt-2 flex flex-wrap gap-x-4 text-sm">{pb?.approaches.map((a: any, i: number) => <span key={a.id}><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full" style={{ background: SERIES[i] }} />{a.label}</span>)}</div>
+          <p className="mt-1 text-xs text-muted">Rishta sends more shops to the opening that gets more good loans. No one rewrites a script.</p>
+        </Card>
+      </div>
+      <Card title="Held back tonight, by name" action={<Pill>{num(heldTotal)} shops</Pill>}>
+        <p className="mb-2 text-sm text-muted">Each of these could be pitched. Rishta said no.</p>
+        {f.heldBack.map((h: any) => <button key={h.merchant_id} onClick={() => open(h.merchant_id)} className="block w-full border-b border-line py-2 text-left last:border-0"><span className="font-semibold">{h.name}, {h.city}</span><span className="block text-sm text-muted">{h.why}</span></button>)}
+        <p className="mt-2 text-xs text-muted">{num(f.held.falling)} sales falling · {num(f.held.ticket)} open tickets · {num(f.held.problem)} another problem first · {num(f.held.repayment)} repayment too high. A further {num(f.held.growth)} simply aren't growing enough yet.</p>
+      </Card>
     </div>
   );
 }
@@ -302,7 +367,7 @@ function Team({ v, selected }: { v: View; selected: string }) {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Stat label="Solved, confirmed by the shop" value={d.resolvedWithoutHuman} hint={`${d.conversations} conversations today`} tone="good" />
         <Stat label="Fixes waiting to be checked" value={d.promises.waiting} hint={`${d.promises.kept} confirmed, ${d.promises.failed} failed`} />
-        <Stat label="Loans sent for approval" value={v.loans.sold} hint={`₹${num(v.loans.soldInr)}, plus ${v.leads.length} warm leads`} tone="brand" />
+        <Stat label="Loan requests, lender decides" value={v.loans.sold} hint={`₹${num(v.loans.soldInr)}, plus ${v.leads.length} warm leads`} tone="brand" />
         <Stat label="Loan dues back on track" value={`₹${num(v.loans.backOnTrackInr)}`} hint={`${v.loans.eased} shops eased, no person needed`} tone="good" />
         <Stat label="More shops kept per 100" value={`+${lift}`} hint={`Past weeks, simulated: ${pct(d.simulated.keepRate)} vs ${pct(d.simulated.controlRate)}`} />
       </div>
@@ -331,10 +396,10 @@ function Team({ v, selected }: { v: View; selected: string }) {
 }
 
 const STEPS = [
-  ["/today", "Overview"], ["/decisions", "Decisions"], ["/shop", "One shop"], ["/talk", "Talk"], ["/result", "Result"], ["/proof", "Proof"], ["/why", "Why shops leave"], ["/team", "Team"],
+  ["/today", "Overview"], ["/decisions", "Decisions"], ["/shop", "One shop"], ["/talk", "Talk"], ["/result", "Result"], ["/proof", "Proof"], ["/loans", "Loans"], ["/why", "Why shops leave"], ["/team", "Team"],
 ] as const;
 
-const NAV: [string, string, string][] = [["/today", "Overview", "overview"], ["/decisions", "Decisions", "list"], ["/shop", "Shop", "shop"], ["/talk", "Conversation", "talk"], ["/proof", "Proof", "proof"], ["/why", "Why shops leave", "why"], ["/team", "Team", "team"], ["/guardrails", "Guardrails", "shield"]];
+const NAV: [string, string, string][] = [["/today", "Overview", "overview"], ["/decisions", "Decisions", "list"], ["/shop", "Shop", "shop"], ["/talk", "Conversation", "talk"], ["/proof", "Proof", "proof"], ["/loans", "Loans", "proof"], ["/why", "Why shops leave", "why"], ["/team", "Team", "team"], ["/guardrails", "Guardrails", "shield"]];
 
 const RAILS: [string, string, string][] = [
   ["Before the model", "Fraud reports", "Urgent handoff, change PIN, call 1930. Digits are never stored."],
@@ -614,6 +679,7 @@ const DO: Record<string, string> = {
   "/talk": "You're the shopkeeper. Hold the mic and speak Hindi or English, or tap the line.",
   "/result": "Rishta logged this itself. Next: did the shop really stay?",
   "/proof": "The evidence, in shops and in rupees.",
+  "/loans": "From a nightly check to a loan the lender can decide on.",
   "/why": "Conversations tell the sales team why shops really leave, including what you just said.",
   "/team": "That's the loop. Last: what stops it going wrong.",
   "/guardrails": "That's the whole product. Try another shop, or open it on your phone.",
@@ -728,7 +794,8 @@ export default function Flow() {
     : path === "/shop" ? shopNext()
     : path === "/talk" ? { label: finished ? "See what happened" : "Finish the conversation first", run: () => go(withShop("/result")), off: !finished }
     : path === "/result" ? (settled === null ? { label: "Jump 30 days: did they stay?", run: () => void jump(), off: !finished } : { label: "See the proof", run: () => go(withShop("/proof")) })
-    : path === "/proof" ? { label: "Why shops leave", run: () => go(withShop("/why")) }
+    : path === "/proof" ? { label: "See the loan pipeline", run: () => go(withShop("/loans")) }
+    : path === "/loans" ? { label: "Why shops leave", run: () => go(withShop("/why")) }
     : path === "/why" ? { label: "The team", run: () => go(withShop("/team")) }
     : path === "/team" ? { label: "See the guardrails", run: () => go("/guardrails") }
     : null;
@@ -768,6 +835,7 @@ export default function Flow() {
               {path === "/shop" && item?.left && !item.brief && <LeftShop shop={item} talk={talkHere} />}
               {path === "/shop" && item?.brief && <Shop item={item} v={v} />}
               {path === "/talk" && item && <Talk shop={item} id={shop} />}
+              {path === "/loans" && <Loans v={v} open={open} />}
               {path === "/result" && item?.brief && <Result item={item} settled={settled} checkBack={() => void fetch(`/api/check-back/${shop}`, { method: "POST" }).then(() => go(`/talk?shop=${shop}`))} />}
               {path === "/proof" && <Proof v={v} />}
               {path === "/why" && <Why v={v} flash={flash} />}
