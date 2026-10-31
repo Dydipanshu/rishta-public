@@ -8,8 +8,21 @@ Hugging Face's docs now say Docker Spaces need a paid plan: PRO is $9 a month. T
 
 | Route | Cost | Good | Bad |
 |---|---|---|---|
+| Render free web service (recommended) | ₹0 | Always reachable, no laptop | Slow small server. Sleeps after 15 quiet minutes unless pinged |
 | A. Your laptop + Cloudflare Tunnel | ₹0 | No card, works today | Laptop must stay on and online |
 | B. Hugging Face Space | $9 a month, cancel after the event | Always up, 2 vCPU and 16 GB | Paid. Sleeps after 48 hours idle |
+
+## Render (₹0)
+
+The server measured about 200 MB of memory with several visitors. That has not been tried on Render yet.
+
+1. Publish the repo and upload `rishta-data.tgz` to a GitHub release tagged `data`.
+2. On render.com, make a New Blueprint from the public repo. It reads `render.yaml`.
+3. Fill in `SARVAM_API_KEY` and `OPENAI_API_KEY` when asked.
+4. Settings → Custom Domains: add `rishta.tunedloop.com`, then add the CNAME it shows in Cloudflare with the proxy off.
+5. In the GitHub repo, set the Actions variable `SITE_URL` to the site's address. This pings it so it doesn't sleep.
+
+Render gives 750 free hours a month, enough for one service running all month.
 
 ## A. Laptop + Cloudflare Tunnel (₹0)
 

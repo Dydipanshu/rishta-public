@@ -1,0 +1,11 @@
+name: Keep the site awake
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+jobs:
+  ping:
+    if: vars.SITE_URL != ''
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -fsS -m 90 "${{ vars.SITE_URL }}/healthz"

@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: rishta
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: PORT
+        value: "7860"
+      - key: DATA_URL
+        value: https://github.com/Dydipanshu/rishta-public/releases/download/data/rishta-data.tgz
+      - key: OPENAI_MODEL
+        value: gpt-6.1-terra
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: SARVAM_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
