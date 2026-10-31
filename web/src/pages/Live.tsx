@@ -62,7 +62,7 @@ function Picker({ selected, pick, wide }: { selected: string; pick: (id: string)
 
 function Sheet({ title, close, children }: { title: string; close: () => void; children: React.ReactNode }) {
   return (
-    <div role="dialog" aria-label={title} className="rise fixed inset-0 z-40 flex flex-col bg-white">
+    <div role="dialog" aria-label={title} className="rise safe-top fixed inset-0 z-40 flex flex-col bg-white">
       <div className="flex items-center justify-between border-b border-line px-4 py-2.5"><span className="font-bold text-ink">{title}</span><button onClick={close} className="font-semibold text-paytm-deep">Close</button></div>
       {children}
     </div>
@@ -153,7 +153,7 @@ export default function Live() {
   // On a phone the shop is the whole screen. Tap its name to change shop.
   if (narrow) {
     return (
-      <div className="flex h-dvh flex-col bg-white">
+      <div className="app-h safe-top flex flex-col bg-white">
         <header className="flex items-center gap-1 border-b border-line py-1.5 pl-2 pr-2">
           <a href="/" aria-label="Home" className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-paytm to-paytm-deep font-extrabold text-white">र</a>
           <button onClick={() => setSheet("shops")} aria-label="Change shop" className="min-w-0 flex-1 rounded-lg px-2 py-0.5 text-left leading-tight active:bg-paper">

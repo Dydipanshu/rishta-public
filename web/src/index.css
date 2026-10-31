@@ -21,7 +21,18 @@
 
 html, body, #root { height: 100%; }
 /* Projectors with browser bars: everything is sized in rem, so the whole app scales down. */
-@media (max-height: 680px) { html { font-size: 14px; } }
+@media (max-height: 680px) and (pointer: fine) { html { font-size: 14px; } }
+
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+/* iPhones zoom the page when an input's text is under 16px. */
+input, textarea, select { font-size: max(16px, 1em); }
+/* Phone screens: the visible height, which shrinks with the keyboard, clear of the notch and the home bar. */
+.app-h { position: fixed; top: 0; left: env(safe-area-inset-left); right: env(safe-area-inset-right); height: var(--app-h, 100dvh); transform: translateY(var(--app-top, 0)); }
+.safe-top { padding-top: env(safe-area-inset-top); }
+.safe-bottom { padding-bottom: max(0.5rem, env(safe-area-inset-bottom)); }
+:root[data-keyboard] .safe-bottom { padding-bottom: 0.5rem; }
+/* Holding the mic must not select text or open the iPhone's long-press menu. */
+.mic-btn { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: none; }
 
 body {
   font-family: var(--font-sans);
@@ -37,20 +48,22 @@ button { cursor: pointer; }
 .card { background: #fff; border: 1px solid var(--color-line); border-radius: 12px; box-shadow: 0 1px 2px rgb(15 23 42 / 0.04); }
 .btn-primary, .btn-ghost, .btn-off { display: inline-flex; align-items: center; gap: 0.4rem; border-radius: 10px; padding: 0.55rem 1rem; font-weight: 600; white-space: nowrap; transition: background 120ms, border-color 120ms, transform 120ms; }
 .btn-primary { background: var(--color-paytm-deep); color: #fff; }
+@media (hover: hover) {
 .btn-primary:hover { background: #075985; }
 .btn-primary:active { transform: translateY(1px); }
 .btn-ghost { background: #fff; border: 1px solid var(--color-line); color: var(--color-ink); }
 .btn-ghost:hover { border-color: var(--color-paytm-deep); color: var(--color-paytm-deep); }
+.btn-quiet:hover { background: var(--color-paper); color: var(--color-ink); }
+.seg:hover { color: var(--color-ink); }
+.row:hover { background: var(--color-paper); }
+}
 .btn-off { background: var(--color-idle); color: var(--color-muted); cursor: not-allowed; }
 .btn-quiet { border-radius: 8px; padding: 0.45rem; color: var(--color-muted); }
-.btn-quiet:hover { background: var(--color-paper); color: var(--color-ink); }
 .seg { border-radius: 999px; border: 1px solid var(--color-line); background: #fff; padding: 0.25rem 0.75rem; font-size: 0.92rem; color: var(--color-muted); transition: background 120ms, color 120ms; }
-.seg:hover { color: var(--color-ink); }
 .seg-on, .seg-on:hover { background: var(--color-ink); border-color: var(--color-ink); color: #fff; }
 .seg-sm { padding: 0.1rem 0.6rem; font-size: 0.8rem; }
 .row { display: grid; width: 100%; gap: 0.25rem 1rem; align-items: center; border-bottom: 1px solid var(--color-line); padding: 0.6rem 1rem; text-align: left; }
 .row:last-child { border-bottom: 0; }
-.row:hover { background: var(--color-paper); }
 .live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 999px; background: var(--color-kept); box-shadow: 0 0 0 3px rgb(10 127 85 / 0.15); }
 .skeleton { background: linear-gradient(90deg, #eef2f7 25%, #f6f8fb 37%, #eef2f7 63%); background-size: 400% 100%; animation: shimmer 1.4s ease infinite; }
 @keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }

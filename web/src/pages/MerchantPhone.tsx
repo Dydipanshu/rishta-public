@@ -1,6 +1,7 @@
 import qrcode from "qrcode-generator";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useEvents } from "../hooks/useEvents";
+import { useAppHeight } from "../hooks/useAppHeight";
 import { usePushToTalk, type Line } from "../hooks/usePushToTalk";
 
 interface Merchant {
@@ -66,6 +67,8 @@ export default function MerchantPhone({ shopId, tips = [], onTip, free, bare, su
   }, [id]);
   useEffect(load, [load]);
 
+  useAppHeight(!!bare || !!fixedId, () => end.current?.scrollTo({ top: end.current.scrollHeight }));
+
   const onLine = useCallback((l: Line) => setLines((x) => [...x, l]), []);
   const ptt = usePushToTalk(id, onLine, load);
   const { stop: stopAudio, sendText } = ptt;
@@ -122,8 +125,14 @@ export default function MerchantPhone({ shopId, tips = [], onTip, free, bare, su
   const tip = talking && !ended && heard.every((t, i) => t === tips[i]) ? tips[heard.length] : undefined;
 
   const hold = {
-    onPointerDown: () => { if (!busy) void ptt.start(); },
+    onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => {
+      if (busy) return;
+      // Keeps the hold alive if the finger slides off the button.
+      try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* not all browsers allow it */ }
+      void ptt.start();
+    },
     onPointerUp: ptt.release,
+    onPointerCancel: ptt.release,
     onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
     onKeyDown: (e: React.KeyboardEvent) => { if (e.key === " " && !e.repeat && !busy) { e.preventDefault(); void ptt.start(); } },
     onKeyUp: (e: React.KeyboardEvent) => { if (e.key === " ") ptt.release(); },
@@ -205,17 +214,17 @@ export default function MerchantPhone({ shopId, tips = [], onTip, free, bare, su
               {lines.map((l, i) => <div key={i} className={`rise max-w-[85%] rounded-2xl px-3 py-2 text-[15px] ${l.role === "merchant" ? "ml-auto rounded-tr-sm bg-navy text-white" : "rounded-tl-sm bg-white shadow-sm"}`}>{l.text}</div>)}
               {ptt.thinking && <div className="w-fit rounded-2xl bg-white px-3 py-2 text-muted shadow-sm">…</div>}
             </div>
-            <div className="bg-white px-3 pb-2 pt-2 shadow-[0_-1px_0_var(--color-line)]">
+            <div className="safe-bottom bg-white px-3 pt-2 shadow-[0_-1px_0_var(--color-line)]">
               {ptt.error && <div className="mb-1 text-sm text-callback">{ptt.error}</div>}
               {onTip && tip && !busy && !ptt.recording && <button onClick={() => { ptt.sendText(tip); }} className="rise mb-2 w-full rounded-xl border-2 border-paytm px-3 py-2 text-left text-sm"><span className="block text-xs text-muted">Tap to say this, or hold the mic and speak</span>{tip}</button>}
               {free && ended && !ptt.speaking && <button onClick={startNew} className="mb-2 w-full rounded-xl bg-navy px-3 py-2.5 font-semibold text-white">नई बात शुरू करें</button>}
               {!ended && (
                 <div className="flex items-center gap-2">
                   <form className="flex min-w-0 flex-1" onSubmit={(e) => { e.preventDefault(); if (typed.trim() && !busy) { ptt.sendText(typed); setTyped(""); } }}>
-                    <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="यहाँ लिखें" aria-label="Type your message" className="min-w-0 flex-1 rounded-full bg-paper px-4 py-2.5 text-base outline-none" />
+                    <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="यहाँ लिखें" aria-label="Type your message" enterKeyHint="send" autoComplete="off" className="min-w-0 flex-1 rounded-full bg-paper px-4 py-2.5 text-base outline-none" />
                     {typed.trim() && <button disabled={busy} aria-label="Send" className="ml-2 rounded-full bg-navy px-4 font-semibold text-white disabled:opacity-50">भेजें</button>}
                   </form>
-                  {!typed.trim() && <button {...hold} aria-label="Hold to talk" className={`grid h-11 w-11 shrink-0 touch-none select-none place-items-center rounded-full transition-transform ${ptt.recording ? "scale-125 animate-pulse bg-callback text-white" : busy ? "bg-idle text-muted" : "bg-paytm text-navy"}`}><Mic className="h-5 w-5" /></button>}
+                  {!typed.trim() && <button {...hold} aria-label="Hold to talk" className={`mic-btn grid h-11 w-11 shrink-0 place-items-center rounded-full transition-transform ${ptt.recording ? "scale-125 animate-pulse bg-callback text-white" : busy ? "bg-idle text-muted" : "bg-paytm text-navy"}`}><Mic className="h-5 w-5" /></button>}
                 </div>
               )}
               {!ended && heard.length > 0 && <button className="mt-1 w-full text-center text-xs text-muted underline" disabled={busy} onClick={() => void fetch(`/api/end/${id}`, { method: "POST" }).then(load)}>बात खत्म करें</button>}
@@ -226,14 +235,14 @@ export default function MerchantPhone({ shopId, tips = [], onTip, free, bare, su
       )}
 
       {view !== "chat" && (
-        <nav className="grid grid-cols-4 bg-white py-1.5 text-center text-[10px] text-muted shadow-[0_-1px_0_var(--color-line)]">
+        <nav className="safe-bottom grid grid-cols-4 bg-white pt-1.5 text-center text-[10px] text-muted shadow-[0_-1px_0_var(--color-line)]">
           {([["home", "Home"], ["payments", "Payments"], ["settlement", "Settlement"], ["chat", "Assistant"]] as const).map(([key, label]) => <button key={key} onClick={() => (key === "home" || key === "chat" ? setView(key) : open(key))} className={view === key ? "font-bold text-paytm-deep" : ""}><span className={`mx-auto mb-0.5 block h-1 w-5 rounded-full ${view === key ? "bg-paytm-deep" : "bg-transparent"}`} />{label}</button>)}
         </nav>
       )}
     </div>
   );
 
-  if (fixedId) return <div className="h-dvh w-full">{app}</div>;
+  if (fixedId) return <div className="app-h safe-top bg-[#012a72]">{app}</div>;
   if (bare) return <div className="h-full w-full">{app}</div>;
 
   return (
