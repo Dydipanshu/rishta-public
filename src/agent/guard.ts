@@ -36,7 +36,9 @@ const PROMISE = /(refund|रिफंड|पैसे वापस).{0,30}(म�
 const REFUSED = /(refund|रिफंड|माफ़|waive).{0,30}(नहीं|cannot|can't|not)/i;
 
 const MONEY = "₹\\s?(\\d[\\d,]*(?:\\.\\d+)?)";
-const FEE_CLAIM = new RegExp(`\\bfee\\s*(?:है|थी|थे|:|of|is|was)?\\s*${MONEY}|${MONEY}\\s*(?:का|की|के)?\\s*fee\\b`, "gi");
+// "fee ₹2,000 से ऊपर" names the limit, not the amount.
+const LIMIT = "(?![\\d,.]|\\s*(?:से|तक|के\\s*ऊपर|above|up\\s*to|or\\s*less))";
+const FEE_CLAIM = new RegExp(`\\bfee\\s*(?:है|थी|थे|:|of|is|was)?\\s*${MONEY}${LIMIT}|${MONEY}\\s*(?:का|की|के)?\\s*fee\\b`, "gi");
 const GST_CLAIM = new RegExp(`\\bGST\\s*(?:है|थी|:|of|is|was)?\\s*${MONEY}|${MONEY}\\s*(?:का|की|के)?\\s*GST\\b`, "gi");
 const CUT_CLAIM = new RegExp(`${MONEY}\\s*(?:रुपये\\s*)?(?:कटे|कट गए|कटा|कटी|deducted|were cut|was cut)`, "gi");
 
