@@ -1,3 +1,4 @@
+import { LOAN_GUIDE } from "../../config/value.js";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { z } from "zod";
@@ -238,7 +239,17 @@ export class Conversation {
   }
 
   // Yields guarded chunks of speech for one merchant turn.
+  // A shopkeeper is never met with silence, even if the model returns nothing.
   async *reply(spoken: string): AsyncGenerator<string> {
+    let spoke = false;
+    for await (const chunk of this.turn(spoken)) {
+      spoke = true;
+      yield chunk;
+    }
+    if (!spoke) yield this.fixed(LINES.again, isEnglish(spoken));
+  }
+
+  private async *turn(spoken: string): AsyncGenerator<string> {
     const userText = hideLongNumbers(spoken);
     this.transcript.push({ role: "merchant", text: userText });
     this.state.input.push({ role: "user", content: userText });
@@ -256,8 +267,11 @@ export class Conversation {
       const yes = YES.test(userText) && !NO.test(userText);
       this.state.loan = yes ? "yes" : "no";
       if (yes) await this.lead();
-      yield this.fixed(yes ? LOAN_YES : LOAN_NO, english);
-      this.state.ended = true;
+      // Asked mid-conversation, the shop's own problem may still be open.
+      if (SOLVED.includes(this.state.outcome as OutcomeKind)) {
+        yield this.fixed(yes ? LOAN_YES : LOAN_NO, english);
+        this.state.ended = true;
+      } else yield this.fixed(yes ? LINES.loanNoted : LINES.loanSkipped, english);
       return;
     }
 
@@ -406,9 +420,7 @@ export class Conversation {
       this.state.input.pop();
       yield this.fixed(LINES[route], english);
     } else if (route === "loan") {
-      this.state.loan = "yes";
-      await this.lead("Shop asked about a business loan itself");
-      yield this.fixed(LINES.loan, english);
+      yield this.fixed(await this.loanAnswer(), english);
     } else if (route === "human") {
       await core.scheduleCallback(id, "Merchant asked for a person", this.ctx.transcriptText());
       this.ctx.onOutcome("handed_off", "Merchant asked for a person.");
@@ -426,6 +438,17 @@ export class Conversation {
       await core.notify(id, Object.entries(facts).filter(([k]) => k === "feeInr" || k === "gstInr" || k === "feePlusGstInr").map(([k, v]) => `${k === "feeInr" ? "Fee" : k === "gstInr" ? "GST" : "कुल"}: ₹${v}`).join(", ") || "आपका पूरा हिसाब Paytm for Business app में है।");
       yield this.fixed(LINES.quiet, english);
     }
+  }
+
+  // Everything said about a loan comes from code: the shop's own record, never the model.
+  private async loanAnswer(): Promise<readonly [string, string]> {
+    const m = await this.deps.core.merchant(this.brief.merchantId);
+    const monthly = Number(this.brief.facts.collections30DaysInr ?? 0);
+    if (!shopValue(m, monthly, TODAY - m.onboardDay, 0).loanReady) return LINES.loanNotYet;
+    this.state.loan = "asked";
+    const size = Math.floor((monthly * LOAN_GUIDE.monthsOfCollections) / LOAN_GUIDE.roundTo) * LOAN_GUIDE.roundTo;
+    const amount = `₹${size.toLocaleString("en-IN")}`;
+    return [`जी, आपकी दुकान का record अच्छा है। आपकी collection देखकर करीब ${amount} तक के loan की बात हो सकती है। अंतिम रकम और ब्याज lender तय करता है, और किस्त settlement से कटती है। एक व्यक्ति से बात कराऊँ?`, `Your shop's record is good. Based on your collections, a loan of around ${amount} could be discussed. The lender decides the final amount and interest, and repayments come from your settlement. Shall I arrange a call with a person?`];
   }
 
   private async lead(why = "Shop agreed to hear about a business loan after its problem was solved") {

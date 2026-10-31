@@ -114,6 +114,12 @@ async function ledger(sql: Sql, panels: Awaited<ReturnType<typeof playbook>>) {
   });
 }
 
+async function guardrails(sql: Sql) {
+  const rows = await sql.all<{ kind: string; n: number }>("SELECT kind, COUNT(*) AS n FROM audit_log GROUP BY kind");
+  const count = (a: string) => Number(rows.find((r) => r.kind === a)?.n ?? 0);
+  return { blocked: count("guard_block"), fraud: count("fraud_report"), logged: rows.reduce((sum, r) => sum + Number(r.n), 0) };
+}
+
 async function atStake(sql: Sql) {
   const rows = await sql.all<{ meta: string }>("SELECT meta FROM briefs WHERE sort_key >= 0");
   return rows.reduce((sum, r) => sum + (parse(r.meta).valueYear?.total ?? 0), 0);
@@ -199,6 +205,7 @@ export async function consoleView(sql: Sql, core: PaytmCore) {
   return {
     ledger: await ledger(sql, playbookPanel),
     atStake: await atStake(sql),
+    guardrails: await guardrails(sql),
     activity: await activity(sql),
     assumptions: { cost: COST },
     plan: parse(plan!.json),

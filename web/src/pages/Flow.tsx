@@ -326,7 +326,40 @@ const STEPS = [
   ["/today", "Overview"], ["/decisions", "Decisions"], ["/shop", "One shop"], ["/talk", "Talk"], ["/result", "Result"], ["/proof", "Proof"], ["/why", "Why shops leave"], ["/team", "Team"],
 ] as const;
 
-const NAV: [string, string, string][] = [["/today", "Overview", "overview"], ["/decisions", "Decisions", "list"], ["/shop", "Shop", "shop"], ["/talk", "Conversation", "talk"], ["/proof", "Proof", "proof"], ["/why", "Why shops leave", "why"], ["/team", "Team", "team"]];
+const NAV: [string, string, string][] = [["/today", "Overview", "overview"], ["/decisions", "Decisions", "list"], ["/shop", "Shop", "shop"], ["/talk", "Conversation", "talk"], ["/proof", "Proof", "proof"], ["/why", "Why shops leave", "why"], ["/team", "Team", "team"], ["/guardrails", "Guardrails", "shield"]];
+
+const RAILS: [string, string, string][] = [
+  ["Before the model", "Fraud reports", "Urgent handoff, change PIN, call 1930. Digits are never stored."],
+  ["Before the model", "OTP or PIN", "A fixed line answers. The shop's words never reach the model."],
+  ["Before the model", "Account and card numbers", "Removed from the text before anyone sees them."],
+  ["Before the model", "Asks for a person, abuse", "A person takes over with the full history."],
+  ["Before the model", "Stop contacting me", "Opt-out is honoured everywhere, at once."],
+  ["Before the model", "Loan answers", "Built from the shop's record by code. A person does the selling."],
+  ["Before speaking", "Numbers", "Every figure must match this shop's data. Number words are blocked."],
+  ["Before speaking", "Wrong labels and promises", "A fee can't be called a discount, and no fix dates are promised."],
+  ["Before speaking", "Splitting payments, surcharges", "Advice to avoid the fee is blocked."],
+  ["Before acting", "Plan changes", "Only from the catalogue, within budget, after a clear yes."],
+  ["Before contact", "Consent, quiet hours, contact cap", "Checked again per shop before anything is sent."],
+  ["After the conversation", "Honest results", "\"Stayed\" needs the shop's own words. A fix counts only when the shop confirms."],
+  ["If something fails", "Model slow or down", "One retry within 7 seconds, then a person takes over. The shop is never left waiting."],
+];
+
+function Guardrails({ v }: { v: View }) {
+  const g = v.guardrails;
+  return (
+    <div className="space-y-4">
+      <PageHead eyebrow="Enforced by code, not by asking the AI nicely" title="What Rishta can never do." sub="Each rule below runs outside the model, so a clever prompt can't talk its way past it." />
+      <div className="grid grid-cols-3 gap-3">
+        <Stat label="Sentences blocked before speaking" value={g.blocked} />
+        <Stat label="Fraud reports escalated" value={g.fraud} />
+        <Stat label="Actions in the audit log" value={num(g.logged)} hint="Append-only" />
+      </div>
+      <div className="card overflow-hidden">
+        {RAILS.map(([when, what, how]) => <div key={what} className="row md:grid-cols-[170px_minmax(0,1.2fr)_minmax(0,2fr)]"><span><Pill tone="brand">{when}</Pill></span><b>{what}</b><span className="text-sm text-muted">{how}</span></div>)}
+      </div>
+    </div>
+  );
+}
 
 const SCRIPTS: Record<string, string[]> = {
   M001: ["मेरे settlement में पैसे कम क्यों आए? मैं तो मशीन वापस करने की सोच रहा था", "अच्छा समझ गया, मैं Soundbox रख लेता हूँ", "हाँ, बात करा दीजिए"],
@@ -361,7 +394,7 @@ function Welcome({ start }: { start: () => void }) {
             <li key={title} className="card px-4 py-3.5"><Icon name={icon!} className="text-paytm-deep" size={22} /><div className="mt-2 font-semibold text-ink">{title}</div><div className="text-sm text-muted">{text}</div></li>
           ))}
         </ol>
-        <p className="mt-6 text-sm text-muted">Runs on a simulated test bench of 5,000 shops with known answers. Not live in Paytm.</p>
+        <p className="mt-6 text-sm text-muted">Runs on a simulated test bench with known answers. Not live in Paytm.</p>
       </div>
     </div>
   );
@@ -574,7 +607,8 @@ const DO: Record<string, string> = {
   "/result": "Rishta logged this itself. Next: did the shop really stay?",
   "/proof": "The evidence, in shops and in rupees.",
   "/why": "Conversations tell the sales team why shops really leave, including what you just said.",
-  "/team": "That's the loop. Try another shop, or open it on your phone.",
+  "/team": "That's the loop. Last: what stops it going wrong.",
+  "/guardrails": "That's the whole product. Try another shop, or open it on your phone.",
 };
 
 function Search({ list, open }: { list: any; open: (id: string) => void }) {
@@ -652,7 +686,7 @@ export default function Flow() {
   };
   const jump = async () => setSettled((await (await fetch("/api/demo/fast-forward", { method: "POST" })).json()).settled);
 
-  if (path === "/" || !STEPS.some(([p]) => p === path)) return <Welcome start={() => void begin()} />;
+  if (path === "/" || (path !== "/guardrails" && !STEPS.some(([p]) => p === path))) return <Welcome start={() => void begin()} />;
   const index = STEPS.findIndex(([p]) => p === path);
   const talkable = !!item?.brief && ["soundbox", "app"].includes(item.brief.channel);
   const finished = !!item?.outcome;
@@ -684,6 +718,7 @@ export default function Flow() {
     : path === "/result" ? (settled === null ? { label: "Jump 30 days: did they stay?", run: () => void jump(), off: !finished } : { label: "See the proof", run: () => go(withShop("/proof")) })
     : path === "/proof" ? { label: "Why shops leave", run: () => go(withShop("/why")) }
     : path === "/why" ? { label: "The team", run: () => go(withShop("/team")) }
+    : path === "/team" ? { label: "See the guardrails", run: () => go("/guardrails") }
     : null;
 
   return (
@@ -724,6 +759,7 @@ export default function Flow() {
               {path === "/proof" && <Proof v={v} />}
               {path === "/why" && <Why v={v} flash={flash} />}
               {path === "/team" && <Team v={v} selected={shop} />}
+              {path === "/guardrails" && <Guardrails v={v} />}
             </>}
           </div>
         </main>

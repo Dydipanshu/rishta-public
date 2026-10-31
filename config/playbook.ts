@@ -14,7 +14,7 @@ export const PLAYBOOK: Partial<Record<ReasonCode, Approach[]>> = {
     { id: "fee_offer_human", label: "Offer a person", guidance: "Explain briefly and offer a callback from a person." },
   ],
   device_fault: [
-    { id: "device_ticket_first", label: "Raise replacement first", guidance: "Tell the shop what the device data shows and offer a replacement ticket straight away." },
+    { id: "device_ticket_first", label: "Raise replacement first", guidance: "Tell the shop what the device data shows and raise the replacement ticket in the same turn with raiseTicket. Do not ask first." },
     { id: "device_troubleshoot_first", label: "Troubleshoot first", guidance: "Walk through a basic restart and charging check, then raise a ticket if it continues." },
   ],
   rent_too_high: [

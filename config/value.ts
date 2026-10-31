@@ -27,3 +27,6 @@ export const COST = {
 export const FOLLOW_UP_DAYS = 3;
 export const CARE_DAYS = 30;
 export const FRAUD_HELPLINE = "1930"; // India's national cybercrime helpline
+
+// Rough size of loan a person can discuss: one month's collections, rounded down. Illustrative; the lender decides.
+export const LOAN_GUIDE = { monthsOfCollections: 1, roundTo: 10_000 };
