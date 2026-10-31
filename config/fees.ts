@@ -1,4 +1,4 @@
-// UPI merchant fee rules (section 7 of CLAUDE.md).
+// UPI merchant fee rules.
 export const FEES = {
   ratePct: 0.4,
   freeUptoInr: 2000,

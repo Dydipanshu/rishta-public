@@ -43,7 +43,7 @@ TypeScript throughout. Fastify, SQLite (Postgres and Kafka by configuration), Re
 
 ## Run it
 
-Needs Node 24, pnpm, and Sarvam and OpenAI keys.
+Needs Node 20.12+, pnpm, and Sarvam and OpenAI keys.
 
 ```bash
 pnpm install

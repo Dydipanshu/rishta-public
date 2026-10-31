@@ -7,7 +7,7 @@ const VOICES = [
   ["shalini_enhi_customer", "Hinglish customer care"],
 ];
 
-// Pick by ear, then set SARVAM_TTS_VOICE. Clips come from scripts/spike/voiceSamples.ts.
+// Pick by ear, then set SARVAM_TTS_VOICE.
 export default function Voices() {
   return (
     <main className="mx-auto max-w-xl p-6">
