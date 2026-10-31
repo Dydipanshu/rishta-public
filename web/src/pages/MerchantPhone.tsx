@@ -15,7 +15,8 @@ interface Merchant {
   channel: string | null;
   conversation: { transcript: Line[]; ended: boolean } | null;
   inbox: { text: string; created_at: string }[];
-  tickets: { id: string; type: string; status: string; note: string }[];
+  tickets: { id: string; type: string; status: string; note: string; promise: string | null }[];
+  savedYearInr: number;
 }
 
 const inr = (n: number) => `₹${n.toLocaleString("en-IN")}`;
@@ -115,27 +116,25 @@ export default function MerchantPhone({ shopId, tips = [], onTip }: { shopId?: s
           </div>
         )}
 
-        <header className="bg-navy px-4 pb-3 pt-3 text-white">
+        <header className="bg-white px-4 pb-2 pt-3">
           <div className="flex items-center justify-between">
-            <div className="text-[15px] font-extrabold">pay<span className="text-paytm">tm</span> <span className="font-medium opacity-80">for Business</span></div>
-            <div className="max-w-[55%] truncate text-xs opacity-80">{m?.name}</div>
+            <div className="text-[15px] font-extrabold text-[#012a72]">pay<span className="text-paytm">tm</span> <span className="font-medium text-muted">for Business</span></div>
+            <div className="grid h-8 w-8 place-items-center rounded-full bg-paytm/15 text-sm font-bold text-paytm-deep">{m?.name[0]}</div>
           </div>
-          <div className="mt-2 flex items-end justify-between gap-3">
-            <div>
-              <div className="text-xs opacity-80">आज का कलेक्शन</div>
-              <div className="text-3xl font-extrabold leading-tight">{m ? inr(m.today) : " "}</div>
-            </div>
-            <div className="text-right">
-              <div className="text-xs opacity-80">पिछला settlement</div>
-              <div className="font-bold">{m ? inr(m.latestSettlementNetInr) : ""}</div>
-              {m && m.fee.feeInr > 0 && <div className="text-[11px] opacity-80">Fee {inr(m.fee.feeInr)} + GST {inr(m.fee.gstInr)}</div>}
+          <div className="truncate text-sm text-muted">{m?.name}</div>
+          <div className="mt-2 rounded-2xl bg-gradient-to-br from-[#012a72] to-[#0369a1] px-4 py-3 text-white shadow-sm">
+            <div className="text-xs opacity-80">आज का कलेक्शन</div>
+            <div className="num text-[1.9rem] font-bold leading-tight">{m ? inr(m.today) : " "}</div>
+            <div className="mt-1 flex items-center justify-between border-t border-white/15 pt-1.5 text-xs">
+              <span className="opacity-80">पिछला settlement</span>
+              <span className="num font-semibold">{m ? inr(m.latestSettlementNetInr) : ""}{m && m.fee.feeInr > 0 && <span className="ml-1 font-normal opacity-75">Fee + GST {inr(m.fee.feePlusGstInr)}</span>}</span>
             </div>
           </div>
         </header>
 
         <div ref={end} className="flex-1 overflow-y-auto">
           {!talking && (
-            <div className="grid grid-cols-4 gap-1 border-b border-line bg-white px-3 py-3 text-center text-[11px] text-muted" aria-hidden>
+            <div className="grid grid-cols-4 gap-1 bg-white px-3 pb-3 pt-1 text-center text-[11px] text-muted" aria-hidden>
               {TILES.map(([label, path]) => (
                 <div key={label}>
                   <svg viewBox="0 0 24 24" className="mx-auto h-6 w-6 text-paytm-deep" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"><path d={path} /></svg>
@@ -154,7 +153,7 @@ export default function MerchantPhone({ shopId, tips = [], onTip }: { shopId?: s
 
           {talking && (
             <div className="space-y-2 px-4 py-3" aria-live="polite">
-              <div className="text-center text-xs text-muted">Paytm Assistant · AI</div>
+              <div className="text-center text-xs text-muted">Paytm Assistant · AI · OTP या PIN कभी नहीं माँगता</div>
               {nudge && lines.length === 0 && <div className="rise max-w-[85%] rounded-2xl rounded-tl-sm bg-white px-3 py-2 text-[15px] shadow-sm">{nudge}</div>}
               {lines.map((l, i) => (
                 <div key={i} className={`rise max-w-[85%] rounded-2xl px-3 py-2 text-[15px] ${l.role === "merchant" ? "ml-auto rounded-tr-sm bg-navy text-white" : "rounded-tl-sm bg-white shadow-sm"}`}>{l.text}</div>
@@ -165,8 +164,9 @@ export default function MerchantPhone({ shopId, tips = [], onTip }: { shopId?: s
 
           {(m?.tickets.length || m?.inbox.length) ? (
             <div className="space-y-2 px-4 py-3">
-              <div className="text-xs font-semibold text-muted">इनबॉक्स</div>
-              {m.tickets.map((t) => <div key={t.id} className="rise rounded-xl border-l-4 border-kept bg-white px-3 py-2 text-sm"><b>Ticket {t.id}</b><div className="line-clamp-2 text-muted">{t.note}</div></div>)}
+              <div className="text-xs font-semibold text-muted">आपके लिए</div>
+              {m.savedYearInr > 0 && <div className="rise rounded-xl border-l-4 border-kept bg-white px-3 py-2 text-sm"><b>{inr(m.savedYearInr)} की बचत</b><div className="text-muted">नए plan से हर साल</div></div>}
+              {m.tickets.map((t) => <div key={t.id} className="rise rounded-xl border-l-4 border-paytm bg-white px-3 py-2 text-sm"><b>Ticket {t.id}</b><div className="text-muted">{t.promise === "kept" ? "आपने बताया कि ठीक हो गया ✓" : t.promise === "failed" ? "एक व्यक्ति आपको call करेगा" : "3 दिन में हम खुद पूछेंगे कि ठीक हुआ या नहीं"}</div></div>)}
               {m.inbox.map((x, i) => <div key={i} className="rise rounded-xl bg-white px-3 py-2 text-sm">{x.text}</div>)}
             </div>
           ) : null}

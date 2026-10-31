@@ -34,7 +34,11 @@
             "stayed",
             "plan_changed",
             "ticket_raised",
+            "fix_confirmed",
             "handed_off",
+            "return_requested",
+            "later",
+            "undecided",
             "opted_out",
             "left",
             "no_response"
@@ -84,7 +88,9 @@
               "scheduleHumanCallback",
               "recordOutcome",
               "recordOptOut",
-              "sendAppMessage"
+              "sendAppMessage",
+              "requestDeviceReturn",
+              "confirmFix"
             ]
           }
         },

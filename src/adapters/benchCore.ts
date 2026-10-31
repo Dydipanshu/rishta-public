@@ -12,7 +12,7 @@ export function benchCore(sql: Sql): PaytmCore {
     isActive: async (id, onDay) => {
       const m = await sql.get<{ churn_day: number | null }>("SELECT churn_day FROM merchants WHERE id = ?", [id]);
       if (m?.churn_day != null && m.churn_day <= onDay) return false;
-      return !(await sql.get("SELECT 1 AS ok FROM outcomes WHERE merchant_id = ? AND json LIKE '%\"outcome\":\"left\"%'", [id]));
+      return !(await sql.get("SELECT 1 AS ok FROM outcomes WHERE merchant_id = ? AND (json LIKE '%\"outcome\":\"left\"%' OR json LIKE '%\"outcome\":\"return_requested\"%')", [id]));
     },
     merchantPage: (lo, hi, afterId, limit) => loadMerchantPage(sql, lo, hi, afterId, limit),
     openTickets: async (id) =>

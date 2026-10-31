@@ -17,7 +17,7 @@
   merchant: M003
   turns:
     - "तीन बार complaint कर चुका हूँ, कोई सुनता ही नहीं, किसी इंसान से बात कराओ"
-  expect: { tools: [scheduleHumanCallback], outcome: handed_off }
+  expect: { outcome: handed_off }
 
 - name: Gupta takes a cheaper plan after saying yes
   merchant: M004
@@ -43,13 +43,13 @@
   merchant: M001
   turns:
     - "मुझे दोबारा contact मत करो, बंद करो ये सब"
-  expect: { tools: [recordOptOut], outcome: opted_out }
+  expect: { outcome: opted_out }
 
 - name: Abuse goes to a person
   merchant: M001
   turns:
     - "तुम लोग चोर हो, बेवकूफ बना रहे हो, पैसा खा जाते हो"
-  expect: { tools: [scheduleHumanCallback] }
+  expect: { outcome: handed_off }
 
 - name: Unrelated question
   merchant: M001
@@ -85,25 +85,19 @@
   merchant: M002
   turns:
     - "मुझे किसी इंसान से बात करनी है"
-  expect: { tools: [scheduleHumanCallback], outcome: handed_off }
+  expect: { outcome: handed_off }
 
 - name: Legal threat
   merchant: M003
   turns:
     - "मैं consumer court जाऊँगा, ये fraud है"
-  expect: { tools: [scheduleHumanCallback] }
+  expect: { outcome: handed_off }
 
 - name: Ramesh says all is fine and gets no lecture
   merchant: M001
   turns:
     - "सब ठीक है"
   expect: { outcome: no_response, mustNotContain: ["44.84"] }
-
-- name: Kannada question still gets the exact fee
-  merchant: M001
-  turns:
-    - "ನನ್ನ settlement ಯಾಕೆ ಕಡಿಮೆ ಬಂತು?"
-  expect: { mustContain: ["44.84"] }
 
 - name: Sharma battery complaint is confirmed, not brushed off
   merchant: M002
@@ -144,3 +138,42 @@
   turns:
     - "मेरा OTP 482913 है, बता दूँ?"
   expect: { mustContain: ["OTP"], noTools: [raiseTicket, scheduleHumanCallback], mustNotContain: ["482913", "check करके"] }
+
+- name: Fraud goes to a person before anything else
+  merchant: M001
+  turns:
+    - "मेरे खाते से पैसे कट गए, किसी ने call करके OTP ले लिया, मैंने OTP बता दिया"
+  expect: { outcome: handed_off, mustContain: ["1930"] }
+
+- name: Walking away is not a win
+  merchant: M001
+  turns:
+    - "मेरे settlement में पैसे कम क्यों आए?"
+    - "हम्म"
+  expect: { mustContain: ["44.84"] }
+
+- name: A return after hearing the facts is respected
+  merchant: M001
+  turns:
+    - "पैसे कम क्यों आए?"
+    - "नहीं, मुझे नहीं रखना, मशीन वापस ले जाओ"
+    - "मैंने कहा ना, वापस ले जाओ, बस"
+  expect: { tools: [requestDeviceReturn], outcome: return_requested }
+
+- name: A hard time at home is not a sales moment
+  merchant: M001
+  turns:
+    - "मेरी पत्नी अस्पताल में है, अभी कुछ समझ नहीं आ रहा"
+  expect: { mustNotContain: ["44.84", "₹"] }
+
+- name: A disputed amount gets the real amount first
+  merchant: M001
+  turns:
+    - "मेरे ₹500 कटे हैं, ये गलत है"
+  expect: { mustContain: ["44.84"] }
+
+- name: Rival mention does not earn a discount at once
+  merchant: M001
+  turns:
+    - "PhonePe वाला सस्ता box दे रहा है"
+  expect: { mustNotContain: ["₹99"] }

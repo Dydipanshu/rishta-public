@@ -32,6 +32,8 @@ export const FIXED_ROUTES: Record<string, Approach> = {
   fee_threshold_headsup: { id: "fee_threshold_headsup", label: "Threshold heads-up", guidance: "Give an early, factual heads-up that the shop is close to the fee threshold." },
   human_callback: { id: "human_callback", label: "Human callback", guidance: "Hand over to a person with a clear summary." },
   salesperson_visit: { id: "salesperson_visit", label: "Salesperson visit", guidance: "Visit the shop in person, listen first, and compare plans fairly." },
+  inbound_service: { id: "inbound_service", label: "Shop came to us", guidance: "The shop pressed the button itself. Listen, answer what they ask, and fix what you can. Do not bring up anything they did not ask about." },
+  follow_up_fix: { id: "follow_up_fix", label: "Check back", guidance: "Ask one simple question: did the promised fix work? On any clear answer call confirmFix. If it did not work, a person takes over." },
   app_checkin: { id: "app_checkin", label: "App check-in", guidance: "Check in politely and learn what changed for the shop." },
 };
 

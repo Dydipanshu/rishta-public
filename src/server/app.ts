@@ -12,6 +12,7 @@ import { resetLive } from "../data/reset.js";
 import { audit } from "../data/sql.js";
 import { KEEP_WINDOW_DAYS, TODAY } from "../sim/types.js";
 import { Brief, Outcome } from "../engine/brief.js";
+import { followUpBrief, inboundBrief, pendingFollowUp } from "../engine/inbound.js";
 import { sendOutreach } from "../engine/outreach.js";
 import { heardClearly } from "../voice/stt.js";
 import { settleOutcomes } from "../engine/settle.js";
@@ -44,13 +45,12 @@ const NUDGES: Record<string, string> = {
   rent_too_high: "आपके plan के बारे में एक ज़रूरी बात है। जानने के लिए नीचे का बटन दबाइए।",
   settlement_delay: "आपके settlement की जानकारी है। जानने के लिए नीचे का बटन दबाइए।",
 };
-const ALREADY_DONE = "जी, आपकी बात दर्ज हो चुकी है। धन्यवाद।";
 const DEFAULT_NUDGE = "Paytm की तरफ़ से एक जानकारी है। जानने के लिए नीचे का बटन दबाइए।";
 const HEADS_UP = "आपकी payments के बारे में एक ज़रूरी जानकारी है। जानने के लिए नीचे का बटन दबाइए।";
 const nudgeFor = (b: Brief) => (b.approachId === "fee_threshold_headsup" ? HEADS_UP : NUDGES[b.problem] ?? DEFAULT_NUDGE);
 
 const IDLE_MS = 5 * 60_000;
-const TalkText = z.object({ text: z.string().min(1).max(500) });
+const TalkText = z.object({ text: z.string().trim().min(1) });
 const SessionRequest = z.object({ merchantId: z.string(), ttlSec: z.number().int().max(3600).default(900) });
 
 export async function buildApp(d: AppDeps) {
@@ -73,7 +73,7 @@ export async function buildApp(d: AppDeps) {
   });
 
   async function briefRow(id: string) {
-    const row = await sql.get<{ json: string; meta: string }>("SELECT json, meta FROM briefs WHERE merchant_id = ?", [id]);
+    const row = await sql.get<{ json: string; meta: string }>("SELECT json, meta FROM briefs WHERE merchant_id = ? AND sort_key >= 0", [id]);
     return row ? { brief: Brief.parse(JSON.parse(row.json)), meta: JSON.parse(row.meta) as { why: string } } : null;
   }
 
@@ -176,16 +176,14 @@ export async function buildApp(d: AppDeps) {
     let conv = await Conversation.resume(d, id);
     const isNew = !conv;
     if (!conv) {
+      // Any shop can press the button, any time. One brief still gives one conversation,
+      // so a late press becomes a new service conversation and can't overwrite a result.
+      if (!(await sql.get("SELECT 1 AS ok FROM merchants WHERE id = ?", [id]))) return reply.code(404).send({ error: "No such shop" });
       const row = await briefRow(id);
-      if (!row) return reply.code(404).send({ error: "No brief for this merchant" });
-      // One brief, one conversation: a late press can't overwrite a result that is already in.
-      if (await sql.get("SELECT 1 AS ok FROM outcomes WHERE brief_id = ?", [row.brief.briefId])) {
-        reply.hijack();
-        reply.raw.writeHead(200, { "Content-Type": "application/x-ndjson", "Cache-Control": "no-store" });
-        reply.raw.end(`${JSON.stringify({ type: "say", ...say(ALREADY_DONE) })}\n${JSON.stringify({ type: "end", ended: true })}\n`);
-        return;
-      }
-      conv = await Conversation.start(d, row.brief, row.meta.why);
+      const open = row && (row.brief.channel === "human_callback" || !(await sql.get("SELECT 1 AS ok FROM outcomes WHERE brief_id = ?", [row.brief.briefId])));
+      const planned = open && row.brief.channel !== "salesperson_visit";
+      const brief = (await pendingFollowUp(sql, id)) ?? (planned ? row.brief : await inboundBrief(sql, core, id));
+      conv = await Conversation.start(d, brief, planned ? row.meta.why : "The shop pressed the button itself");
     }
 
     let audio: { data: Buffer; type: string } | null = null;
@@ -194,7 +192,9 @@ export async function buildApp(d: AppDeps) {
       const file = await req.file();
       if (file) audio = { data: await file.toBuffer(), type: file.mimetype };
     } else {
-      typed = TalkText.parse(req.body).text;
+      const body = TalkText.safeParse(req.body);
+      if (!body.success) return reply.code(400).send({ error: "Say something first" });
+      typed = body.data.text.slice(0, 500);
     }
 
     reply.hijack();
@@ -307,6 +307,16 @@ export async function buildApp(d: AppDeps) {
     return { token: issueMerchantToken(s.SESSION_SECRET, parsed.data.merchantId, parsed.data.ttlSec), expiresInSec: parsed.data.ttlSec };
   });
 
+  // Rishta goes back to a shop about a promise it made. The daily worker calls the same step.
+  app.post<{ Params: { id: string } }>("/api/check-back/:id", { preHandler: serviceAuth }, async (req, reply) => {
+    const brief = await followUpBrief(sql, core, req.params.id);
+    if (!brief) return reply.code(404).send({ error: "Nothing to check on" });
+    const card = "आपकी शिकायत के बारे में पूछना था: क्या दिक्कत ठीक हो गई? बताने के लिए नीचे का बटन दबाइए।";
+    await d.gateway.deliver({ brief, lines: [say(card)], card });
+    await ui({ type: "changed", merchantId: req.params.id });
+    return { ok: true };
+  });
+
   if (!production) {
     // Bench only: pretends 30 days have passed so the learning step runs live.
     app.post("/api/demo/fast-forward", async () => {
@@ -330,7 +340,7 @@ export async function buildApp(d: AppDeps) {
 
   async function prewarm() {
     const firstNames = await sql.all<{ first_name: string }>("SELECT first_name FROM merchants WHERE is_demo = 1");
-    await tts.prewarm([ANNOUNCEMENT, ...FILLERS, DEFAULT_NUDGE, HEADS_UP, ALREADY_DONE, ...Object.values(NUDGES), ...firstNames.map((m) => openingLine(m.first_name))]);
+    await tts.prewarm([ANNOUNCEMENT, ...FILLERS, DEFAULT_NUDGE, HEADS_UP, ...Object.values(NUDGES), ...firstNames.map((m) => openingLine(m.first_name))]);
   }
 
   // Any server can close abandoned conversations; finish() runs only once.

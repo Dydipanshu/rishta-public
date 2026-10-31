@@ -20,7 +20,8 @@
         "soundbox",
         "app",
         "salesperson_visit",
-        "human_callback"
+        "human_callback",
+        "inbound"
       ]
     },
     "problem": {
@@ -70,7 +71,9 @@
           "scheduleHumanCallback",
           "recordOutcome",
           "recordOptOut",
-          "sendAppMessage"
+          "sendAppMessage",
+          "requestDeviceReturn",
+          "confirmFix"
         ]
       }
     },

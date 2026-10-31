@@ -19,7 +19,10 @@ export function collectNumbers(value: unknown, into: Set<string>) {
 }
 
 // Number words the model must write as digits. "ek" and "do" are left out: they are common non-numeric words.
-const NUMBER_WORDS = /(?:^|[\s,])(तीन|चार|पाँच|पांच|छह|सात|आठ|नौ|दस|बीस|तीस|चालीस|पचास|सौ|हज़ार|हजार|लाख|करोड़|teen|chaar|char|paanch|panch|saat|aath|hazaar|hazar|lakh|crore)(?=[\s,।.?!]|$)/i;
+const HINDI_NUMBERS = "तीन चार पाँच पांच छह सात आठ नौ दस ग्यारह बारह तेरह चौदह पंद्रह सोलह सत्रह अठारह उन्नीस बीस इक्कीस बाईस तेईस चौबीस पच्चीस छब्बीस सत्ताईस अट्ठाईस उनतीस तीस इकतीस बत्तीस तैंतीस चौंतीस पैंतीस छत्तीस सैंतीस अड़तीस उनतालीस चालीस इकतालीस बयालीस तैंतालीस चौवालीस चवालीस पैंतालीस छियालीस सैंतालीस अड़तालीस उनचास पचास साठ सत्तर अस्सी नब्बे निन्यानवे सौ हज़ार हजार लाख करोड़ डेढ़ ढाई";
+const ROMAN_NUMBERS = "teen chaar char paanch panch saat aath das bees tees chalis pachas sau hazaar hazar lakh crore";
+const ENGLISH_NUMBERS = "two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty thirty forty fifty sixty seventy eighty ninety hundred thousand lakh crore";
+const NUMBER_WORDS = new RegExp(`(?:^|[\\s,])(${[HINDI_NUMBERS, ROMAN_NUMBERS, ENGLISH_NUMBERS].join(" ").split(" ").join("|")})(?=[\\s,।.?!-]|$)`, "i");
 
 const SECRET = /\b(otp|pin|password|cvv)\b|ओटीपी|पिन|पासवर्ड|bank details|बैंक डिटेल|account number|खाता नंबर|card number|कार्ड नंबर/i;
 const NEGATED = /nahi|nahin|नहीं|never|kabhi|कभी|mat|मत|don'?t|do not/i;
@@ -28,19 +31,48 @@ const SPLITTING = /(split|बाँट|बांट|baant|tod\s*kar|तोड़
 const SURCHARGE = /(customer|grahak|ग्राहक).{0,30}(extra|zyada charge|ज़्यादा charge|अतिरिक्त|surcharge)|surcharge/i;
 const FISHING = /(kaunsi|kaun si|कौन सी|कौन-सी|which).{0,20}(company|कंपनी|rival|competitor)|competitor/i;
 
+// The model may not commit Paytm to anything. Only code confirms real actions.
+const PROMISE = /(refund|रिफंड|पैसे वापस).{0,30}(मिल जाएगा|मिलेगा|आ जाएगा|आएगा|हो जाएगा|कर दूँगी|कर देती|कर दिया|will|done)|(fee|शुल्क).{0,20}(माफ़|माफ|waive)|(माफ़|waive).{0,20}(fee|शुल्क)|fee\s*(नहीं|बंद).{0,12}(लगेगी|कटेगी|होगी)|पक्का|गारंटी|guarantee|कल तक|आज ही/i;
+const REFUSED = /(refund|रिफंड|माफ़|waive).{0,30}(नहीं|cannot|can't|not)/i;
+
+const MONEY = "₹\\s?(\\d[\\d,]*(?:\\.\\d+)?)";
+const FEE_CLAIM = new RegExp(`\\bfee\\s*(?:है|थी|थे|:|of|is|was)?\\s*${MONEY}|${MONEY}\\s*(?:का|की|के)?\\s*fee\\b`, "gi");
+const GST_CLAIM = new RegExp(`\\bGST\\s*(?:है|थी|:|of|is|was)?\\s*${MONEY}|${MONEY}\\s*(?:का|की|के)?\\s*GST\\b`, "gi");
+const CUT_CLAIM = new RegExp(`${MONEY}\\s*(?:रुपये\\s*)?(?:कटे|कट गए|कटा|कटी|deducted|were cut|was cut)`, "gi");
+
+const key = (raw: string | undefined) => numberKey((raw ?? "").replace(/,$/, ""));
+
+// A real number in the wrong place is still wrong: the fee must be the fee.
+export function wrongLabel(sentence: string, facts: Record<string, unknown>): string | null {
+  const known = (...keys: string[]) => keys.filter((k) => facts[k] !== undefined).map((k) => String(facts[k]));
+  const test = (re: RegExp, keys: string[], label: string) => {
+    const ok = known(...keys);
+    if (ok.length === 0) return null;
+    for (const m of normaliseDigits(sentence).matchAll(re)) {
+      const n = key(m[1] ?? m[2]);
+      if (!ok.includes(n)) return `${n} is not the ${label}`;
+    }
+    return null;
+  };
+  return test(FEE_CLAIM, ["feeInr", "feePlusGstInr"], "fee") ?? test(GST_CLAIM, ["gstInr"], "GST") ?? test(CUT_CLAIM, ["feePlusGstInr", "feeInr", "gstInr", "monthlyRentInr"], "amount deducted");
+}
+
 export type GuardResult = { ok: true } | { ok: false; kind: "number" | "forbidden"; reason: string };
 
-export function checkSentence(sentence: string, allowed: Set<string>): GuardResult {
+export function checkSentence(sentence: string, allowed: Set<string>, facts: Record<string, unknown> = {}): GuardResult {
   if (LINK.test(sentence)) return { ok: false, kind: "forbidden", reason: "link" };
   if (SPLITTING.test(sentence)) return { ok: false, kind: "forbidden", reason: "splitting advice" };
   if (SURCHARGE.test(sentence) && !NEGATED.test(sentence)) return { ok: false, kind: "forbidden", reason: "surcharge" };
   if (FISHING.test(sentence)) return { ok: false, kind: "forbidden", reason: "asked about a competitor" };
   if (SECRET.test(sentence) && !NEGATED.test(sentence)) return { ok: false, kind: "forbidden", reason: "asked for a secret" };
+  if (PROMISE.test(sentence) && !REFUSED.test(sentence)) return { ok: false, kind: "forbidden", reason: "made a promise" };
   const word = sentence.match(NUMBER_WORDS);
   if (word) return { ok: false, kind: "number", reason: `number word "${word[1]}"` };
   for (const n of numbersIn(sentence)) {
     if (!allowed.has(n)) return { ok: false, kind: "number", reason: `unverified number ${n}` };
   }
+  const label = wrongLabel(sentence, facts);
+  if (label) return { ok: false, kind: "number", reason: label };
   return { ok: true };
 }
 

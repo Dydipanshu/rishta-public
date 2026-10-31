@@ -15,8 +15,9 @@ import { ACTION_NAMES, Brief, ESCALATE_IF, MUST_NOT, MUST_SAY, type ActionName }
 import { VISITS_PER_DAY, channelFor } from "./channels.js";
 import { factsFor } from "./facts.js";
 import { learnedSkips, ruleSkips, type HistoryRow, type SegmentCheck } from "./leaveAlone.js";
-import { addResult, chooseApproach, type Stats } from "./playbook.js";
+import { addResult, chooseApproach, keepEstimate, type Stats } from "./playbook.js";
 import { REASON_LABELS, type ReasonCode } from "./reasons.js";
+import { keptWorth, moveCost, valueOf } from "./value.js";
 
 export const ATTENTION_RISK = 0.15;
 
@@ -31,7 +32,7 @@ const GOALS: Partial<Record<ReasonCode, string>> = {
 };
 
 function actionsFor(problem: ReasonCode): ActionName[] {
-  const always: ActionName[] = ["getMerchantSummary", "raiseTicket", "scheduleHumanCallback", "recordOutcome", "recordOptOut", "sendAppMessage"];
+  const always: ActionName[] = ["getMerchantSummary", "raiseTicket", "scheduleHumanCallback", "recordOutcome", "recordOptOut", "sendAppMessage", "requestDeviceReturn"];
   if (problem === "fee_confusion") return [...always, "explainFee"];
   if (problem === "device_fault") return [...always, "checkDeviceHealth"];
   if (problem === "rent_too_high") return [...always, "proposePlan", "changePlan"];
@@ -57,6 +58,8 @@ interface RunContext {
   stats: Stats;
   checks: SegmentCheck[];
   learned: Map<string, SegmentCheck>;
+  holdoutKeep: Map<string, number>;
+  care: Set<string>;
 }
 
 export async function prepare(sql: Sql): Promise<RunContext> {
@@ -74,7 +77,17 @@ export async function prepare(sql: Sql): Promise<RunContext> {
     }
   }
   const checks = learnedSkips(rows);
-  return { risk: JSON.parse(stored.value) as RiskModel, stats, checks, learned: new Map(checks.filter((c) => c.skip).map((c) => [c.segment, c])) };
+  const control = new Map<string, { kept: number; n: number }>();
+  for (const h of history) {
+    if (h.approach_id !== "holdout") continue;
+    const t = control.get(h.problem) ?? { kept: 0, n: 0 };
+    t.kept += h.kept * h.n;
+    t.n += h.n;
+    control.set(h.problem, t);
+  }
+  const holdoutKeep = new Map([...control].filter(([, t]) => t.n >= 20).map(([p, t]) => [p, t.kept / t.n]));
+  const care = new Set((await sql.all<{ merchant_id: string }>("SELECT merchant_id FROM notes WHERE kind = 'care' AND until_day >= ?", [TODAY])).map((r) => r.merchant_id));
+  return { risk: JSON.parse(stored.value) as RiskModel, stats, checks, learned: new Map(checks.filter((c) => c.skip).map((c) => [c.segment, c])), holdoutKeep, care };
 }
 
 interface ShardCounts {
@@ -97,6 +110,7 @@ function decide(m: Merchant, ctx: RunContext, seed: number, counts: ShardCounts)
 
   const segment = segmentOf(m);
   const skipReasons = ruleSkips({ ...m, monthlyCollections: f.monthlyCollections }, TODAY);
+  if (ctx.care.has(m.id)) skipReasons.push("Hard time at home: no proactive contact for 30 days");
   const rule = skipReasons.length > 0;
   const seg = learned.get(segment);
   if (seg) {
@@ -110,15 +124,23 @@ function decide(m: Merchant, ctx: RunContext, seed: number, counts: ShardCounts)
     return { skip: { m, kind: rule && seg ? "rule + learned" : rule ? "rule" : "learned", reasons: skipReasons } };
   }
 
+  const worth = valueOf(m, f, TODAY);
   const headsUp = detected.thresholdHeadsUp === true;
   const channel = channelFor(detected.problem, f, score, headsUp);
   let approachId: string;
   let share: number | null = null;
   if (headsUp) approachId = FIXED_ROUTES.fee_threshold_headsup!.id;
   else if (PLAYBOOK[detected.problem]) {
-    const choice = chooseApproach(stats, detected.problem, segment, makeRng(`${seed}-${m.id}`));
+    // Picks the approach that earns the most for this shop, not just the one that keeps the most.
+    const choice = chooseApproach(stats, detected.problem, segment, makeRng(`${seed}-${m.id}`), (id, p) => p * keptWorth(id, worth.total, m.monthlyRent) - moveCost(id));
     approachId = choice.approachId;
     share = choice.share;
+    const control = ctx.holdoutKeep.get(detected.problem);
+    const keep = keepEstimate(stats, detected.problem, approachId);
+    const net = control === undefined || keep === null ? null : (keep - control) * keptWorth(approachId, worth.total, m.monthlyRent) - moveCost(approachId);
+    if (net !== null && net < 0 && f.openTickets === 0 && !m.isDemo) {
+      return { skip: { m, kind: "learned", reasons: [`Not worth it: helping is expected to earn ₹${Math.round(net + moveCost(approachId))} and cost ₹${Math.round(moveCost(approachId))} (simulated)`] } };
+    }
   } else if (channel === "human_callback") approachId = FIXED_ROUTES.human_callback!.id;
   else if (channel === "salesperson_visit") approachId = FIXED_ROUTES.salesperson_visit!.id;
   else approachId = FIXED_ROUTES.app_checkin!.id;
@@ -158,6 +180,7 @@ function decide(m: Merchant, ctx: RunContext, seed: number, counts: ShardCounts)
         riskReasons: reasons,
         approachLabel: approachById(approachId)?.label ?? approachId,
         approachShare: share,
+        valueYear: worth,
         segment,
         isDemo: m.isDemo,
       },

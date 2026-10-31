@@ -7,6 +7,7 @@ import { benchCore } from "../adapters/benchCore.js";
 import { openSql } from "../data/sql.js";
 import { shardRange } from "../data/store.js";
 import { dailyRun, finalizeRun, runShards } from "../engine/dailyRun.js";
+import { followUpBrief } from "../engine/inbound.js";
 import { sendMorningOutreach } from "../engine/outreach.js";
 import { settleOutcomes } from "../engine/settle.js";
 import { TODAY } from "../sim/types.js";
@@ -21,6 +22,12 @@ if (arg === "--settle") {
   console.log("Settled:", await settleOutcomes(sql, core, seed, TODAY));
 } else if (arg === "--send") {
   console.log("Morning send:", await sendMorningOutreach(sql, core, new Date(), process.env.APP_ENV === "production"));
+  // Promises come due by themselves: nobody has to remember to go back.
+  const due = await sql.all<{ merchant_id: string }>("SELECT DISTINCT merchant_id FROM promises WHERE status = 'open' AND due_day <= ?", [TODAY]);
+  for (const p of due) {
+    if (await followUpBrief(sql, core, p.merchant_id)) await core.notify(p.merchant_id, "आपकी शिकायत के बारे में पूछना था: क्या दिक्कत ठीक हो गई? बताने के लिए बटन दबाइए।");
+  }
+  console.log("Check-backs:", due.length);
 } else if (arg === "--start") {
   await sql.run("DELETE FROM run_shards");
   console.log("Run started");

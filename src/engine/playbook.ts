@@ -23,7 +23,15 @@ export function addResult(stats: Stats, problem: string, approach: string, segme
 }
 
 // Share of traffic for each approach: how often it wins a Thompson draw, floored at 10%.
-export function allocation(stats: Stats, problem: ReasonCode, segment: string, rng: Rng, draws = 300) {
+// With a score, each draw is judged in rupees rather than in shops kept.
+export type Score = (approachId: string, keep: number) => number;
+
+export function keepEstimate(stats: Stats, problem: string, approach: string) {
+  const t = stats.get(key(problem, approach));
+  return t && t.kept + t.lost > 0 ? t.kept / (t.kept + t.lost) : null;
+}
+
+export function allocation(stats: Stats, problem: ReasonCode, segment: string, rng: Rng, score?: Score, draws = 300) {
   const approaches = PLAYBOOK[problem] ?? [];
   const wins = new Array<number>(approaches.length).fill(0);
   const params = approaches.map((a) => {
@@ -34,9 +42,10 @@ export function allocation(stats: Stats, problem: ReasonCode, segment: string, r
   });
   for (let i = 0; i < draws; i++) {
     let best = 0;
-    let bestValue = -1;
+    let bestValue = -Infinity;
     params.forEach(([a, b], j) => {
-      const v = sampleBeta(a, b, rng);
+      const keep = sampleBeta(a, b, rng);
+      const v = score ? score(approaches[j]!.id, keep) : keep;
       if (v > bestValue) {
         bestValue = v;
         best = j;
@@ -49,8 +58,8 @@ export function allocation(stats: Stats, problem: ReasonCode, segment: string, r
   return approaches.map((a, j) => ({ approachId: a.id, share: floor + (spare * wins[j]!) / draws }));
 }
 
-export function chooseApproach(stats: Stats, problem: ReasonCode, segment: string, rng: Rng) {
-  const shares = allocation(stats, problem, segment, rng);
+export function chooseApproach(stats: Stats, problem: ReasonCode, segment: string, rng: Rng, score?: Score) {
+  const shares = allocation(stats, problem, segment, rng, score);
   let r = rng();
   for (const s of shares) {
     r -= s.share;

@@ -1,13 +1,5 @@
-// Languages Rishta can speak beyond Hindi and English. Malayalam and Odia have no bulbul:v4 voice yet.
-export const LANGUAGES: Record<string, { name: string; script: string; voice: string }> = {
-  "kn-IN": { name: "Kannada", script: "Kannada", voice: "chaitra_kn_conversation" },
-  "ta-IN": { name: "Tamil", script: "Tamil", voice: "aravind_ta_ads" },
-  "te-IN": { name: "Telugu", script: "Telugu", voice: "pooja_te_conversation" },
-  "bn-IN": { name: "Bengali", script: "Bengali", voice: "roopa_bn_conversational" },
-  "gu-IN": { name: "Gujarati", script: "Gujarati", voice: "pooja_gu_customer" },
-  "pa-IN": { name: "Punjabi", script: "Gurmukhi", voice: "anand_pa_customer" },
-  "mr-IN": { name: "Marathi", script: "Devanagari", voice: "ishita_mr_conversational" },
-};
+// Hindi and English only for now. Add a language here (name, script, Sarvam voice) to switch it on.
+export const LANGUAGES: Record<string, { name: string; script: string; voice: string }> = {};
 
 export const HINDI = "hi-IN";
 const MIN_CONFIDENCE = 0.85;
@@ -28,7 +20,8 @@ export const isEnglish = (text: string) => /^[\x00-\x7F₹]+$/.test(text) && wor
 // Noisy Hindi can be misread as another language, so a switch needs a confident, full phrase in the right script.
 export function trustDetection(text: string, language: string, confidence: number | undefined, current: string) {
   const known = LANGUAGES[language];
-  if (!known) return true;
+  // Anything else is noisy Hindi misheard, so the audio is read again in the current language.
+  if (!known) return language === HINDI || language === "en-IN";
   if (!inScript(text, known.script)) return false;
   return language === current || ((confidence ?? 0) >= MIN_CONFIDENCE && words(text) >= 2);
 }

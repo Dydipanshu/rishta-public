@@ -5,6 +5,9 @@ import { audit, type Sql } from "../data/sql.js";
 import { OUTREACH_START_DAY, TODAY } from "../sim/types.js";
 import type { Brief, Outcome } from "./brief.js";
 
+const SERVICE = ["inbound_service", "follow_up_fix"];
+const LEARNS = (b: Brief, o: Outcome) => !SERVICE.includes(b.approachId) && (b.channel !== "human_callback" || o.handledBy === "human");
+
 export interface Place {
   city: string;
   category: string;
@@ -23,7 +26,8 @@ export async function recordOutcome(tx: Sql, conversationId: string, brief: Brie
     await tx.run("INSERT INTO reason_events (merchant_id, day, week, code, quote, city, category, live) VALUES (?, ?, ?, ?, ?, ?, ?, 1)", [brief.merchantId, TODAY, week, r.code, r.quote, m.city, m.category]);
   }
   // Kept stays empty for 30 days; the weekly update will count it then.
-  await tx.run("INSERT INTO contact_history (merchant_id, day, week, problem, approach_id, true_cause, segment, city, category, kept) VALUES (?, ?, ?, ?, ?, 'live', ?, ?, ?, NULL)", [brief.merchantId, TODAY, week, brief.problem, brief.approachId, `T${m.cityTier}-${m.categoryGroup}`, m.city, m.category]);
+  // A shop that came to us is normal service, so holdout shops stay clean and it never teaches the playbook.
+  if (LEARNS(brief, outcome)) await tx.run("INSERT INTO contact_history (merchant_id, day, week, problem, approach_id, true_cause, segment, city, category, kept) VALUES (?, ?, ?, ?, ?, 'live', ?, ?, ?, NULL)", [brief.merchantId, TODAY, week, brief.problem, brief.approachId, `T${m.cityTier}-${m.categoryGroup}`, m.city, m.category]);
   await audit(tx, brief.merchantId, "outcome", outcome);
   await enqueue(tx, TOPICS.outcomes, brief.merchantId, { id: randomUUID(), type: "conversation.outcome", version: 1, at, merchantId: brief.merchantId, conversationId, outcome });
   return true;

@@ -26,25 +26,45 @@ export interface LLMAdapter {
   extract<T extends z.ZodType>(req: { instructions: string; text: string; schema: T; name: string }): Promise<z.infer<T>>;
 }
 
+const STALL_MS = 7000;
+
 export function openAIAdapter(apiKey: string, model: string, effort: "none" | "low" | "medium", baseURL?: string): LLMAdapter {
   const client = new OpenAI({ apiKey, baseURL, timeout: 20_000, maxRetries: 1 });
   return {
     async *turn({ instructions, input, tools }) {
-      const stream = await client.responses.create({
-        model,
-        instructions,
-        input,
-        tools: tools.map((t) => ({ type: "function" as const, strict: true, ...t })),
-        reasoning: { effort },
-        stream: true,
-        store: false,
-      });
-      for await (const event of stream) {
-        if (event.type === "response.output_text.delta") yield { type: "text", delta: event.delta };
-        if (event.type === "response.completed") {
-          const output = event.response.output.filter((o) => o.type === "message" || o.type === "function_call");
-          const calls = output.flatMap((o) => (o.type === "function_call" ? [{ callId: o.call_id, name: o.name, args: o.arguments }] : []));
-          yield { type: "done", items: output as LLMItem[], calls };
+      // A shopkeeper can't wait through a stalled request: one quick retry, then a person takes over.
+      for (let attempt = 0; ; attempt++) {
+        const stop = new AbortController();
+        let timer = setTimeout(() => stop.abort(), STALL_MS);
+        let started = false;
+        try {
+          const stream = await client.responses.create({
+            model,
+            instructions,
+            input,
+            tools: tools.map((t) => ({ type: "function" as const, strict: true, ...t })),
+            reasoning: { effort },
+            stream: true,
+            store: false,
+          }, { signal: stop.signal, maxRetries: 0 });
+          for await (const event of stream) {
+            clearTimeout(timer);
+            timer = setTimeout(() => stop.abort(), STALL_MS);
+            if (event.type === "response.output_text.delta") {
+              started = true;
+              yield { type: "text", delta: event.delta };
+            }
+            if (event.type === "response.completed") {
+              const output = event.response.output.filter((o) => o.type === "message" || o.type === "function_call");
+              const calls = output.flatMap((o) => (o.type === "function_call" ? [{ callId: o.call_id, name: o.name, args: o.arguments }] : []));
+              yield { type: "done", items: output as LLMItem[], calls };
+            }
+          }
+          return;
+        } catch (err) {
+          if (started || attempt > 0) throw err;
+        } finally {
+          clearTimeout(timer);
         }
       }
     },

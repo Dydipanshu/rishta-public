@@ -8,6 +8,12 @@ import { recordOutcome } from "../engine/outcomes.js";
 import { REASON_CODES, ReasonCode } from "../engine/reasons.js";
 import type { PaytmCore } from "../ports.js";
 import { isEnglish } from "../voice/languages.js";
+import { hideLongNumbers, LINES, routeTurn, type Route } from "./router.js";
+import { NO, YES } from "./tools.js";
+import { addNote, memoryForAgent, openPromises, timeline } from "../engine/memory.js";
+import { SOLVED } from "../engine/brief.js";
+import { shopValue } from "../engine/value.js";
+import { TODAY } from "../sim/types.js";
 import { checkSentence, collectNumbers, numbersIn, takeChunks, type GuardResult } from "./guard.js";
 import type { LLMAdapter, LLMItem } from "./llmAdapter.js";
 import { runTool, toolsFor, type ToolContext } from "./tools.js";
@@ -15,7 +21,12 @@ import { runTool, toolsFor, type ToolContext } from "./tools.js";
 const TEMPLATE = readFileSync(new URL("./prompts/system.md", import.meta.url), "utf8");
 const READ_TOOLS = new Set(["getMerchantSummary", "explainFee", "checkDeviceHealth", "proposePlan"]);
 const GOODBYE = /(धन्यवाद|दिन शुभ|thank you|good day|nice day|great day)[^?]*[।.!]?\s*$/i;
-const CONFIRMED = new Set(["raiseTicket", "changePlan"]);
+const CONFIRMED = new Set(["raiseTicket", "changePlan", "requestDeviceReturn"]);
+const CARE = /(hospital|अस्पताल|बीमार|ऑपरेशन|operation|गुज़र|गुजर|निधन|शादी|death|passed away|ill\b|sick)/i;
+const STAYING = /रखूँगा|रखूंगा|रखूँगी|रखूंगी|रख लेता|रखता हूँ|रखेंगे|नहीं लौटा|वापस नहीं|समझ गया|समझ गई|समझ आ गया|समझ आ गई|ठीक है|ठीक हो गया|सब ठीक|और कुछ नहीं|कुछ नहीं|धन्यवाद|शुक्रिया|thanks?\b|thank you|i'?ll keep|will keep|understood|got it|okay|\bok\b/i;
+const LOAN_ASK = ["एक बात और, आपकी दुकान का record अच्छा है। अगर चाहें तो Paytm से एक व्यक्ति business loan के बारे में बता सकता है। बात कराऊँ?", "One more thing: your shop's record is good. If you'd like, a person from Paytm can tell you about a business loan. Shall I arrange that?"] as const;
+const LOAN_YES = ["जी, वे आपको call करेंगे। धन्यवाद, आपका दिन शुभ हो।", "They will call you. Thank you, have a good day."] as const;
+const LOAN_NO = ["जी, कोई बात नहीं। धन्यवाद, आपका दिन शुभ हो।", "No problem. Thank you, have a good day."] as const;
 const FALLBACK = "जी, मैं check करके बताती हूँ।";
 const NO_SPLITTING = "जी, fee बचाने के तरीकों पर मैं सलाह नहीं दे सकती। कोई और सवाल हो तो बताइए।";
 const CANNOT_HELP = "जी, इसमें मैं मदद नहीं कर सकती। Paytm से जुड़ा कोई और सवाल हो तो बताइए।";
@@ -33,7 +44,11 @@ const CLOSING_LINES: Record<string, [string, string]> = {
 function confirmation(call: string, result: Record<string, unknown>, english: boolean, device: boolean) {
   if (call === "raiseTicket") {
     const next = device ? ["Device team replacement के लिए आपसे संपर्क करेगी।", "The device team will contact you about a replacement."] : ["Support team इसे देखेगी।", "The support team will review it."];
+    if (result.existing) return english ? `Your ticket ${result.ticketId} is already open, so I added this to it. ${next[1]} Thank you.` : `जी, आपका ticket ${result.ticketId} पहले से चल रहा है, मैंने यह बात उसमें जोड़ दी। ${next[0]} धन्यवाद।`;
     return english ? `Your ticket ${result.ticketId} is raised. ${next[1]} Thank you.` : `जी, आपका ticket ${result.ticketId} बन गया है। ${next[0]} धन्यवाद।`;
+  }
+  if (call === "requestDeviceReturn") {
+    return english ? `Your return request ${result.ticketId} is booked. The pickup team will contact you. You can come back any time. Thank you.` : `जी, आपकी वापसी का request ${result.ticketId} बन गया है। Pickup team आपसे संपर्क करेगी। आप कभी भी वापस आ सकते हैं। धन्यवाद।`;
   }
   if (call === "changePlan") {
     return english ? `Your plan is now ${result.newPlan}. Your rent will be ₹${result.newRentInr} a month. Thank you.` : `जी, आपका plan ${result.newPlan} हो गया है। अब rent ₹${result.newRentInr} महीना लगेगा। धन्यवाद।`;
@@ -41,17 +56,20 @@ function confirmation(call: string, result: Record<string, unknown>, english: bo
   return null;
 }
 
-export const openingLine = (firstName: string, english = false) =>
-  english ? `${firstName} ji, I'm Paytm's AI assistant. Paytm never asks for your OTP or PIN.` : `${firstName} जी, मैं Paytm की AI assistant हूँ। Paytm कभी OTP या PIN नहीं माँगता।`;
+const greet = (name: string, tail: string) => (/^(ji|जी)?$/i.test(name.trim()) ? "" : `${name} ${tail}`);
 
-function buildInstructions(brief: Brief, why: string) {
+export const openingLine = (firstName: string, english = false) =>
+  english ? `${greet(firstName, "ji, ")}I'm Paytm's AI assistant. Paytm never asks for your OTP or PIN.` : `${greet(firstName, "जी, ")}मैं Paytm की AI assistant हूँ। Paytm कभी OTP या PIN नहीं माँगता।`;
+
+function buildInstructions(brief: Brief, why: string, memory: string) {
   const { firstName, ...facts } = brief.facts;
   const fill: Record<string, string> = {
     goal: brief.goal,
     displayName: brief.displayName,
     firstName: String(firstName),
     why,
-    guidance: approachById(brief.approachId)?.guidance ?? "",
+    guidance: approachById(brief.approachId)?.guidance ?? "Listen first and answer what they ask. Use only what the facts show.",
+    memory,
     successCriteria: brief.successCriteria,
     facts: Object.entries(facts).map(([k, v]) => `- ${k}: ${v}`).join("\n"),
   };
@@ -95,6 +113,10 @@ interface ConversationState {
   ended: boolean;
   outcome: OutcomeKind | null;
   summary: string;
+  quiet?: boolean;
+  loan?: "asked" | "yes" | "no";
+  memory?: string;
+  promise?: string;
   input: LLMItem[];
   allowed: string[];
   started: number;
@@ -108,7 +130,7 @@ export class Conversation {
 
   private constructor(private deps: AgentDeps, readonly brief: Brief, private why: string, private state: ConversationState) {
     this.allowed = new Set(state.allowed);
-    this.instructions = buildInstructions(brief, why);
+    this.instructions = buildInstructions(brief, why, state.memory ?? "- Nothing yet.");
     this.ctx = {
       sql: deps.sql,
       core: deps.core,
@@ -130,6 +152,8 @@ export class Conversation {
     const conv = new Conversation(deps, brief, why, {
       id: `C-${brief.merchantId}-${randomUUID()}`, transcript: [], actions: [], guardEvents: [], numbersVerified: true, ended: false,
       outcome: null, summary: "", input: [], allowed: [...allowed], started,
+      memory: memoryForAgent(await timeline(deps.sql, brief.merchantId)),
+      promise: brief.approachId === "follow_up_fix" ? ({ device: "machine", settlement: "settlement", rent: "plan", fee: "fee" } as Record<string, string>)[(await openPromises(deps.sql, brief.merchantId))[0]?.kind ?? ""] ?? "पिछली" : undefined,
     });
     const at = new Date(started).toISOString();
     await deps.sql.run("INSERT INTO conversations (id, brief_id, merchant_id, started_at, updated_at, state) VALUES (?, ?, ?, ?, ?, ?)", [conv.id, brief.briefId, brief.merchantId, at, at, conv.snapshot()]);
@@ -177,8 +201,14 @@ export class Conversation {
     return changed === 1;
   }
 
+  // Second time today it stays short. A check-back says what it remembers, because that is the point of it.
   opening(english = false) {
-    const text = openingLine(String(this.brief.facts.firstName), english);
+    const seen = !!this.state.memory && !this.state.memory.includes("Nothing yet");
+    const name = String(this.brief.facts.firstName);
+    const waiting = this.state.promise;
+    const text = waiting
+      ? (english ? `${greet(name, "ji, ")}this is Paytm's AI assistant, checking back on your ${waiting} problem.` : `${greet(name, "जी, ")}मैं Paytm की AI assistant, आपकी ${waiting} वाली शिकायत के बारे में वापस आई हूँ।`)
+      : seen ? (english ? "This is Paytm's AI assistant again." : "जी, मैं Paytm की AI assistant ही हूँ।") : openingLine(name, english);
     this.transcript.push({ role: "agent", text });
     this.state.input.push({ role: "assistant", content: text });
     return text;
@@ -196,7 +226,7 @@ export class Conversation {
 
   // Runs one sentence through the guard. A pass is spoken and kept.
   private async pass(chunk: string, said: string[]): Promise<GuardResult> {
-    const check = checkSentence(chunk, this.allowed);
+    const check = this.state.quiet && numbersIn(chunk).length ? { ok: false as const, kind: "number" as const, reason: "no amounts aloud; the shop asked for privacy" } : checkSentence(chunk, this.allowed, this.brief.facts);
     if (check.ok) {
       said.push(chunk);
       this.say(chunk);
@@ -208,10 +238,35 @@ export class Conversation {
   }
 
   // Yields guarded chunks of speech for one merchant turn.
-  async *reply(userText: string): AsyncGenerator<string> {
+  async *reply(spoken: string): AsyncGenerator<string> {
+    const userText = hideLongNumbers(spoken);
     this.transcript.push({ role: "merchant", text: userText });
     this.state.input.push({ role: "user", content: userText });
     const english = isEnglish(userText);
+
+    // A person already holds this case, so the AI only passes the message on.
+    if (this.brief.channel === "human_callback") {
+      yield this.fixed(LINES.hold, english);
+      await this.deps.core.scheduleCallback(this.brief.merchantId, "Shop pressed the button while waiting for a person", userText);
+      this.ctx.onOutcome("handed_off", "Shop is waiting for a person; message passed on, no AI conversation.");
+      return;
+    }
+
+    if (this.state.loan === "asked") {
+      const yes = YES.test(userText) && !NO.test(userText);
+      this.state.loan = yes ? "yes" : "no";
+      if (yes) await this.lead();
+      yield this.fixed(yes ? LOAN_YES : LOAN_NO, english);
+      this.state.ended = true;
+      return;
+    }
+
+    const route = routeTurn(userText);
+    if (route) {
+      yield* this.routed(route, userText, english);
+      return;
+    }
+    if (CARE.test(userText)) await addNote(this.deps.sql, this.brief.merchantId, "care", "The shopkeeper mentioned a hard time at home. No proactive contact for 30 days.");
 
     // The safety line is fixed: instant, and the same every time. A shopkeeper's digits never reach the model.
     if (SECRET_WORD.test(userText)) {
@@ -296,13 +351,20 @@ export class Conversation {
       // A fix always ends with the merchant hearing exactly what was done.
       if (confirmations.length) {
         // A silent model still owes the merchant the reason, taken from the brief.
-        const alerts = this.brief.facts.batteryAlerts7Days;
-        const reason = said.length === 0 && alerts ? (english ? `I can see ${alerts} battery alerts in the last 7 days. ` : `जी, पिछले 7 दिन में ${alerts} battery alerts आए हैं। `) : "";
+        const { batteryAlerts7Days: alerts, feePlusGstInr: total, feeInr: fee, gstInr: gst } = this.brief.facts;
+        const told = this.transcript.some((t) => t.role === "agent" && t.text.includes(String(total)));
+        const figures = total && !told ? (english ? `Our record shows ₹${total} deducted: fee ₹${fee} and GST ₹${gst}. ` : `जी, हमारे record में ₹${total} कटे हैं: fee ₹${fee} और GST ₹${gst}। `) : "";
+        const reason = figures || (said.length === 0 && alerts ? (english ? `I can see ${alerts} battery alerts in the last 7 days. ` : `जी, पिछले 7 दिन में ${alerts} battery alerts आए हैं। `) : "");
         const line = reason + confirmations.join(" ");
         this.state.input.push({ role: "assistant", content: line });
         this.say(line);
         yield line;
         this.state.ended = true;
+        return;
+      }
+      const offer = await this.loanAsk(english);
+      if (offer) {
+        yield offer;
         return;
       }
       const closing = done.calls.filter((c) => this.actions.includes(c.name as ActionName)).map((c) => CLOSING_LINES[c.name]).find(Boolean);
@@ -319,6 +381,70 @@ export class Conversation {
         return;
       }
     }
+  }
+
+  private fixed(line: readonly [string, string], english: boolean) {
+    const text = line[english ? 1 : 0];
+    this.state.input.push({ role: "assistant", content: text });
+    this.say(text);
+    return text;
+  }
+
+  // Safety and respect are decided by code, before the model is asked anything.
+  private async *routed(route: Exclude<Route, null>, userText: string, english: boolean) {
+    const { core, sql } = this.deps;
+    const id = this.brief.merchantId;
+    if (route === "fraud") {
+      // The shop's words are kept for the team only as a description; digits are stripped so no OTP is stored.
+      await core.scheduleCallback(id, "URGENT: possible fraud", `Merchant reported possible fraud: ${userText.replace(/\d/g, "#")}`);
+      await audit(sql, id, "fraud_report", { conversation: this.id });
+      this.transcript.at(-1)!.text = userText.replace(/\d/g, "#");
+      this.state.input.pop();
+      this.ctx.onOutcome("handed_off", "Possible fraud reported. Urgent handoff; shop told to change PIN and call 1930.");
+      yield this.fixed(LINES.fraud, english);
+    } else if (route === "trust" || route === "account") {
+      this.state.input.pop();
+      yield this.fixed(LINES[route], english);
+    } else if (route === "loan") {
+      this.state.loan = "yes";
+      await this.lead("Shop asked about a business loan itself");
+      yield this.fixed(LINES.loan, english);
+    } else if (route === "human") {
+      await core.scheduleCallback(id, "Merchant asked for a person", this.ctx.transcriptText());
+      this.ctx.onOutcome("handed_off", "Merchant asked for a person.");
+      yield this.fixed(LINES.human, english);
+    } else if (route === "optout") {
+      await core.optOut(id);
+      this.ctx.onOutcome("opted_out", "Merchant asked to stop outreach.");
+      yield this.fixed(LINES.optout, english);
+    } else if (route === "later") {
+      this.ctx.onOutcome("later", "Merchant was busy; nothing was said about the shop.");
+      yield this.fixed(LINES.later, english);
+    } else {
+      this.state.quiet = true;
+      const { firstName: _name, ...facts } = this.brief.facts;
+      await core.notify(id, Object.entries(facts).filter(([k]) => k === "feeInr" || k === "gstInr" || k === "feePlusGstInr").map(([k, v]) => `${k === "feeInr" ? "Fee" : k === "gstInr" ? "GST" : "कुल"}: ₹${v}`).join(", ") || "आपका पूरा हिसाब Paytm for Business app में है।");
+      yield this.fixed(LINES.quiet, english);
+    }
+  }
+
+  private async lead(why = "Shop agreed to hear about a business loan after its problem was solved") {
+    const m = await this.deps.core.merchant(this.brief.merchantId);
+    const monthly = Number(this.brief.facts.collections30DaysInr ?? 0);
+    const value = shopValue(m, monthly, TODAY - m.onboardDay, 0);
+    await this.deps.sql.run("INSERT INTO leads (merchant_id, kind, why, value_inr, status, created_at) VALUES (?, 'business_loan', ?, ?, 'new', ?) ON CONFLICT (merchant_id) DO NOTHING", [m.id, why, value.loanYear, new Date().toISOString()]);
+  }
+
+  // Only a shop whose problem is solved, and whose record supports it, is asked. Asked once, and a person does the selling.
+  private async loanAsk(english: boolean) {
+    const last = this.transcript.filter((t) => t.role === "merchant").at(-1)?.text ?? "";
+    if (this.state.loan || !SOLVED.includes(this.state.outcome as OutcomeKind) || !STAYING.test(last) || this.brief.problem === "unknown") return null;
+    const m = await this.deps.core.merchant(this.brief.merchantId);
+    const monthly = Number(this.brief.facts.collections30DaysInr ?? 0);
+    if (!shopValue(m, monthly, TODAY - m.onboardDay, 0).loanReady) return null;
+    this.state.loan = "asked";
+    this.state.ended = false;
+    return this.fixed(LOAN_ASK, english);
   }
 
   private say(text: string) {
@@ -347,11 +473,14 @@ export class Conversation {
   // What actually happened outranks what the model claimed.
   private finalOutcome(merchantSpoke: boolean): OutcomeKind {
     const claimed = this.state.outcome;
-    if (claimed === "opted_out" || claimed === "handed_off" || claimed === "left") return claimed;
+    if (this.state.loan && claimed && SOLVED.includes(claimed)) return claimed;
+    if (claimed === "opted_out" || claimed === "handed_off" || claimed === "left" || claimed === "return_requested" || claimed === "later" || claimed === "fix_confirmed") return claimed;
     if (this.actions.includes("changePlan")) return "plan_changed";
     if (this.actions.includes("raiseTicket")) return "ticket_raised";
-    if (claimed === "plan_changed" || claimed === "ticket_raised") return "stayed";
-    return claimed ?? (merchantSpoke ? "stayed" : "no_response");
+    if (!merchantSpoke || claimed === "no_response") return "no_response";
+    // "Stayed" must come from the shop's own last words. Walking away mid-talk is not a win.
+    const last = this.transcript.filter((t) => t.role === "merchant").at(-1)?.text ?? "";
+    return STAYING.test(last) ? "stayed" : "undecided";
   }
 
   // Post-call step: reasons, outcome, and the learning loop. Runs once per conversation.
@@ -359,7 +488,7 @@ export class Conversation {
     this.state.ended = true;
     const merchantLines = this.transcript.filter((t) => t.role === "merchant").map((t) => t.text);
     const kind = this.finalOutcome(merchantLines.length > 0);
-    const text = `${this.transcript.map((t) => `${t.role === "merchant" ? "MERCHANT" : "AGENT"}: ${t.text}`).join("\n")}\n\nWHAT THE SYSTEM DID: outcome ${kind}; actions ${this.actions.join(", ") || "none"}.`;
+    const text = `${this.transcript.map((t) => `${t.role === "merchant" ? "MERCHANT" : "AGENT"}: ${t.text}`).join("\n")}\n\nWHAT THE SYSTEM DID: outcome ${kind}; actions ${this.actions.map((a) => (a === "confirmFix" ? `shop said the fix ${kind === "fix_confirmed" ? "worked" : "did NOT work"}` : a)).join(", ") || "none"}.`;
 
     let extraction: z.infer<typeof Extraction> = { reasons: [], teamSummary: this.state.summary, merchantMessage: "" };
     if (merchantLines.length > 0) {

@@ -95,6 +95,40 @@ describe("platform", () => {
       expect((await conv.finish())!.outcome).toBe("stayed");
     });
 
+    it("reports a fraud to a person at once, and never stores the digits", async () => {
+      const { conv, replies } = await run([says("x")], "मेरे खाते से पैसे कट गए, मैंने OTP 482913 बता दिया");
+      expect(replies.join(" ")).toContain("1930");
+      expect(JSON.stringify(conv.transcript)).not.toContain("482913");
+      expect((await conv.finish())!.outcome).toBe("handed_off");
+      expect(await sql.get("SELECT 1 AS ok FROM handoffs WHERE reason LIKE 'URGENT%'")).toBeTruthy();
+    });
+
+    it("keeps one ticket for one problem", async () => {
+      const ticket = call("raiseTicket", { type: "device", note: "battery" });
+      const { conv } = await run([acts("", ticket)], "battery खराब है");
+      await conv.finish();
+      const again = await Conversation.start(deps(fakeLlm([acts("", ticket)])), brief, "test");
+      again.opening();
+      for await (const _ of again.reply("battery फिर खराब है")) void _;
+      expect((await sql.get<{ n: number }>("SELECT COUNT(*) AS n FROM tickets WHERE live = 1"))?.n).toBe(1);
+    });
+
+    it("does not call walking away a win", async () => {
+      const { conv } = await run([says("जी, fee ₹38 है।")], "कितना कटा", "हम्म अच्छा");
+      expect((await conv.finish())!.outcome).toBe("undecided");
+    });
+
+    it("leaves a busy shop in peace, with no model call", async () => {
+      const { conv, replies } = await run([says("fee ₹38")], "अभी ग्राहक खड़े हैं, बाद में बात करो");
+      expect(replies.join(" ")).not.toContain("₹");
+      expect((await conv.finish())!.outcome).toBe("later");
+    });
+
+    it("stops saying amounts aloud when customers can hear", async () => {
+      const { replies } = await run([says("x"), says("जी, fee ₹38 है।")], "ज़ोर से मत बोलो, ग्राहक सुन रहे हैं", "फिर क्या हुआ");
+      expect(replies.join(" ")).not.toContain("₹38");
+    });
+
     it("treats a spoken goodbye as the end, even with no outcome recorded", async () => {
       const { conv } = await run([says("जी, fee ₹38 है।"), says("जी, धन्यवाद। आपका दिन शुभ हो।")], "कितना कटा", "ठीक है, रख लेता हूँ");
       expect(conv.ended).toBe(true);

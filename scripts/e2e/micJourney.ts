@@ -64,11 +64,12 @@ const hold = async (b64: string | null, ms = 200) => {
   await page.waitForTimeout(seconds ? seconds * 1000 + 300 : ms);
   await page.mouse.up();
 };
+const BASE = process.env.E2E_URL ?? "http://localhost:3000";
 const bubbles = page.locator("div.bg-navy.ml-auto");
 const body = () => page.locator("main").innerText();
-const next = (name: string | RegExp) => page.getByRole("button", { name }).click({ timeout: 8000 });
+const next = (name: string | RegExp) => page.getByRole("contentinfo").getByRole("button", { name }).click({ timeout: 8000 });
 
-await page.goto("http://localhost:3000/");
+await page.goto(`${BASE}/`);
 await page.getByRole("button", { name: "Start", exact: true }).click();
 await page.waitForURL("**/today");
 await next("See who and why");
@@ -86,13 +87,13 @@ await page.waitForTimeout(9000);
 const misheard = await bubbles.allInnerTexts();
 check(misheard.length === 0, `noise is not treated as speech ${misheard.join(" / ")}`);
 
-for (const [i, line] of ["मेरे settlement में पैसे कम क्यों आए?", "अच्छा समझ गया, मैं Soundbox रख लेता हूँ"].entries()) {
+for (const [i, line] of ["मेरे settlement में पैसे कम क्यों आए?", "अच्छा समझ गया, मैं Soundbox रख लेता हूँ", "नहीं, अभी नहीं चाहिए"].entries()) {
   const before = await bubbles.count();
   await hold(await clip(line));
   await bubbles.nth(before).waitFor({ timeout: 15_000 }).catch(() => undefined);
   const heard = (await bubbles.allInnerTexts()).at(before) ?? "";
-  await page.waitForTimeout(i === 0 ? 14_000 : 1000);
-  check(heard.includes(i === 0 ? "कम" : "रख"), `the mic heard "${line}" as "${heard}"`);
+  await page.waitForTimeout(i === 2 ? 1000 : 14_000);
+  check(heard.includes(["कम", "रख", "नहीं"][i]!), `the mic heard "${line}" as "${heard}"`);
   await page.screenshot({ path: `${SHOTS}/talk-${i}.png` });
 }
 await page.getByRole("button", { name: "See what happened" }).waitFor({ timeout: 30_000 });
@@ -119,31 +120,14 @@ await next("See what happened");
 check((await body()).includes("Sharma"), "a second shop works end to end");
 await page.screenshot({ path: `${SHOTS}/sharma.png` });
 
-// Same shop, different languages: replies must come back in the language spoken.
-for (const [line, code, speaker, script, name] of [["ನನ್ನ settlement ಯಾಕೆ ಕಡಿಮೆ ಬಂತು", "kn-IN", "chaitra_kn_conversation", /\p{Script=Kannada}/u, "Kannada"], ["என் settlement ஏன் குறைவாக வந்தது", "ta-IN", "aravind_ta_ads", /\p{Script=Tamil}/u, "Tamil"]] as const) {
-  await page.goto("http://localhost:3000/");
-  await page.getByRole("button", { name: "Start", exact: true }).click();
-  await next("See who and why");
-await next("See the first shop");
-  await next(/^Send the nudge/);
-  await page.getByText("Tap to say this").first().waitFor({ timeout: 30_000 });
-  await page.waitForTimeout(9000);
-  await hold(await clip(line, code, speaker));
-  await page.waitForTimeout(22_000);
-  const replies = await page.locator("div.rounded-tl-sm").allInnerTexts();
-  check(replies.slice(1).filter((r) => !script.test(r)).length === 0 && replies.length > 1, `${name} speech gets a ${name} reply: ${replies.at(-1)}`);
-  check(replies.join(" ").includes("44.84"), `${name} reply keeps the exact amount`);
-  await page.screenshot({ path: `${SHOTS}/${name}.png` });
-}
-
 for (const [path, text] of [["/voices", "Pick Rishta"], ["/sales", "Your list for today"], ["/phone/M001", "Ramesh General Store"]] as const) {
-  await page.goto(`http://localhost:3000${path}`);
+  await page.goto(`${BASE}${path}`);
   check(await page.getByText(text).first().waitFor({ timeout: 5000 }).then(() => true, () => false), `${path} opens`);
 }
 
 check(played > 3 && blocked === 0, `spoken replies played (${played} played, ${blocked} blocked)`);
 check(errors.length === 0, `no browser errors ${errors.slice(0, 3).join(" / ")}`);
 await browser.close();
-await fetch("http://localhost:3000/api/reset", { method: "POST" });
+await fetch(`${BASE}/api/reset`, { method: "POST" });
 console.log(failures.length ? `${failures.length} FAILED` : "ALL PASSED");
 process.exit(failures.length ? 1 : 0);
