@@ -198,7 +198,7 @@ export default function MerchantPhone({ shopId, tips = [], onTip, free }: { shop
           {view === "soundbox" && m && <div className="noscroll min-h-0 flex-1 overflow-y-auto p-3"><div className="rounded-2xl bg-white p-3 shadow-sm">{([["Plan का किराया", `${inr(m.plan.rent)} महीना`], ["7 दिन में offline", `${m.device.offlineHours7Days} घंटे`], ["Battery alerts", String(m.device.batteryAlerts7Days)], ["Failed payments", `${m.device.failedPaymentsPct7Days}%`]] as const).map(([k, val]) => <div key={k} className="flex justify-between border-b border-line py-2 text-sm last:border-0"><span className="text-muted">{k}</span><span className="num font-semibold">{val}</span></div>)}</div><button onClick={() => setView("chat")} className="mt-3 w-full rounded-xl bg-paytm-deep py-2.5 font-semibold text-white">मशीन में दिक्कत है?</button></div>}
 
           {view === "chat" && <>
-            <div ref={end} className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-3" aria-live="polite">
+            <div ref={end} className="noscroll min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-3" aria-live="polite">
               {lines.length === 0 && !nudge && <div className="px-6 py-10 text-center text-muted"><div className="font-semibold text-ink">नमस्ते</div><div className="mt-1 text-sm">बटन दबाकर रखें और बोलें, या नीचे लिखें।</div></div>}
               {nudge && lines.length === 0 && <div className="rise max-w-[85%] rounded-2xl rounded-tl-sm bg-white px-3 py-2 text-[15px] shadow-sm">{nudge}</div>}
               {lines.map((l, i) => <div key={i} className={`rise max-w-[85%] rounded-2xl px-3 py-2 text-[15px] ${l.role === "merchant" ? "ml-auto rounded-tr-sm bg-navy text-white" : "rounded-tl-sm bg-white shadow-sm"}`}>{l.text}</div>)}
