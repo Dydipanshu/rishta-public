@@ -1,3 +1,4 @@
+import { OFFER } from "../../config/loans.js";
 import { randomUUID } from "node:crypto";
 import { TOPICS } from "../contracts/events.js";
 import { enqueue } from "../data/outbox.js";
@@ -17,6 +18,14 @@ export async function sendOutreach(sql: Sql, core: PaytmCore, brief: Brief, now:
   if (block) {
     await audit(sql, brief.merchantId, "outreach_blocked", { reason: block });
     return { sent: false, blocked: block };
+  }
+  if (brief.approachId === "loan_offer") {
+    const since = new Date(now.getTime() - OFFER.cooldownDays * 86_400_000).toISOString();
+    const recent = await sql.get("SELECT 1 AS ok FROM outcomes o JOIN briefs b ON b.brief_id = o.brief_id WHERE o.merchant_id = ? AND o.created_at >= ? AND b.json LIKE '%\"approachId\":\"loan_offer\"%'", [brief.merchantId, since]);
+    if (recent) {
+      await audit(sql, brief.merchantId, "outreach_blocked", { reason: "loan cooldown" });
+      return { sent: false, blocked: "This shop already heard about a loan recently" };
+    }
   }
   const at = now.toISOString();
   const sent = await sql.tx(async (tx) => {

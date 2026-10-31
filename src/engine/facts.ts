@@ -3,6 +3,7 @@ import { MAX_MONTHLY_DISCOUNT_INR, eligiblePlans } from "../../config/plans.js";
 import { buildFeatures } from "../features/buildFeatures.js";
 import { TYPICAL_RENT_SHARE } from "../models/problems.js";
 import type { Merchant } from "../sim/types.js";
+import { stockPlan } from "./loans.js";
 import type { ReasonCode } from "./reasons.js";
 
 const round = (n: number) => Math.round(n);
@@ -11,7 +12,21 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 export function summaryFacts(m: Merchant, day: number) {
   const last30 = m.days.slice(Math.max(0, day - 29), day + 1);
   const latest = m.days[day]!;
+  // Same day the phone shows as today's collection, so the agent and the screen always agree.
+  const today = m.days[day - 1]!;
+  const yesterday = m.days[day - 2]!;
+  const sum = (from: number, to: number) => round(m.days.slice(Math.max(0, from), to).reduce((s, d) => s + d.value, 0));
+  const week = sum(day - 7, day);
+  const lastWeek = sum(day - 14, day - 7);
   return {
+    salesTodayInr: round(today.value),
+    paymentsToday: today.count,
+    salesYesterdayInr: round(yesterday.value),
+    salesLast7DaysInr: week,
+    salesPrevious7DaysInr: lastWeek,
+    salesChange7DaysPct: lastWeek > 0 ? round(((week - lastWeek) / lastWeek) * 100) : 0,
+    salesChange7DaysInr: Math.abs(week - lastWeek),
+    salesWindowDays: 7,
     collections30DaysInr: round(last30.reduce((s, d) => s + d.value, 0)),
     payments30Days: last30.reduce((s, d) => s + d.count, 0),
     customers30Days: last30.reduce((s, d) => s + d.uniquePayers, 0),
@@ -33,6 +48,20 @@ export function feeFacts(m: Merchant, day: number) {
     freeUptoInr: FEES.freeUptoInr,
     feeRatePct: FEES.ratePct,
     gstPct: FEES.gstPct,
+  };
+}
+
+// Everything on record for this shop, for questions the brief didn't plan for. Never holds phone, bank or KYC data.
+export function shopProfile(m: Merchant, day: number) {
+  const f = buildFeatures(m, day);
+  const last = m.days[day - 1]!;
+  const weeks = Array.from({ length: 8 }, (_, i) => round(m.days.slice(Math.max(0, day - 7 * (i + 1)), day - 7 * i).reduce((s, d) => s + d.value, 0)));
+  return {
+    category: m.category, city: m.city, planId: m.planId, monthlyRentInr: m.monthlyRent,
+    salesPerWeekNewestFirstInr: weeks,
+    averagePaymentInr: last.count > 0 ? round(last.value / last.count) : 0,
+    repeatCustomerSharePct: round(last.repeatShare * 100),
+    ...summaryFacts(m, day), ...deviceFacts(m, day), ...settlementFacts(m, day), ...stockPlan(m),
   };
 }
 
@@ -65,6 +94,7 @@ export function settlementFacts(m: Merchant, day: number) {
 
 export function factsFor(m: Merchant, day: number, problem: ReasonCode, headsUp: boolean): Record<string, number | string> {
   const base = { firstName: m.firstName, businessName: m.name, ...summaryFacts(m, day) };
+  if (problem === "loan_opportunity") return { ...base, ...stockPlan(m) };
   if (headsUp) return { ...base, zeroFeeLimitInr: FEES.zeroFeeMonthlyLimitInr, monthsAboveLimit: 2, monthsToMove: FEES.monthsAboveToMove, freeUptoInr: FEES.freeUptoInr };
   if (problem === "fee_confusion") return { ...base, ...feeFacts(m, day) };
   if (problem === "device_fault") return { ...base, ...deviceFacts(m, day) };

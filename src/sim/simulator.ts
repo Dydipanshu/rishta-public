@@ -216,8 +216,8 @@ const weekOf = (day: number) => Math.floor((day - OUTREACH_START_DAY) / 7) + 1;
 export function simulate(seed: number, count: number, holdoutShare: number): SimResult {
   const rng = makeRng(seed);
   const decisionRng = makeRng(`${seed}-decide`);
-  const live = Array.from({ length: count - 6 }, (_, i) => newMerchant(i + 7, rng, holdoutShare));
   const demo = buildDemoMerchants(seed);
+  const live = Array.from({ length: count - 6 }, (_, i) => newMerchant(i + 7, rng, holdoutShare));
 
   const contacts: ContactRow[] = [];
   const reasonEvents: ReasonEventRow[] = [];
@@ -285,5 +285,12 @@ export function simulate(seed: number, count: number, holdoutShare: number): Sim
     }
   }
 
-  return { merchants: [...demo, ...live.map((l) => l.m)], contacts, reasonEvents, allocations };
+  // Demo shops were added after the seed was tuned. Trimming here keeps the same history, so the planted results hold and the total stays exact.
+  const dropped = new Set(live.slice(count - demo.length).map((l) => l.m.id));
+  return {
+    merchants: [...demo, ...live.map((l) => l.m).filter((m) => !dropped.has(m.id))],
+    contacts: contacts.filter((c) => !dropped.has(c.merchantId)),
+    reasonEvents: reasonEvents.filter((r) => !dropped.has(r.merchantId)),
+    allocations,
+  };
 }

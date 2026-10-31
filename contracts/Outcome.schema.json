@@ -61,6 +61,7 @@
         "type": "string",
         "enum": [
           "getMerchantSummary",
+          "getShopProfile",
           "explainFee",
           "checkDeviceHealth",
           "raiseTicket",

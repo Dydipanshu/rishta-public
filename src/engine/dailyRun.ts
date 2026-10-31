@@ -1,4 +1,4 @@
-import { loanCase } from "./loans.js";
+import { loanCase, stockPlan } from "./loans.js";
 import { FIXED_ROUTES, PLAYBOOK, approachById } from "../../config/playbook.js";
 import { MAX_MONTHLY_DISCOUNT_INR } from "../../config/plans.js";
 import { buildFeatures } from "../features/buildFeatures.js";
@@ -156,6 +156,10 @@ function decide(m: Merchant, ctx: RunContext, seed: number, counts: ShardCounts)
   else approachId = FIXED_ROUTES.app_checkin!.id;
 
   let why = detected.why;
+  if (detected.problem === "loan_opportunity") {
+    const stock = stockPlan(m);
+    why = `Sales up ${stock.salesGrowthPct}% and steady. A month's stock costs about ₹${stock.stockNeedInr.toLocaleString("en-IN")}`;
+  }
   if (m.tickets.some((t) => t.note.includes("return") && t.closedDay === null)) why += "; asked about returning the device";
 
   const brief = Brief.parse({
@@ -168,7 +172,7 @@ function decide(m: Merchant, ctx: RunContext, seed: number, counts: ShardCounts)
     approachId,
     goal: headsUp ? "Merchant knows the threshold early and is not surprised" : (GOALS[detected.problem] ?? "Understand what changed for the shop"),
     facts: factsFor(m, TODAY, detected.problem, headsUp),
-    allowedActions: actionsFor(detected.problem).filter((a) => ACTION_NAMES.includes(a)),
+    allowedActions: [...new Set([...actionsFor(detected.problem), "getShopProfile" as const])].filter((a) => ACTION_NAMES.includes(a)),
     limits: { maxDiscountInr: MAX_MONTHLY_DISCOUNT_INR },
     mustSay: MUST_SAY,
     mustNot: MUST_NOT,

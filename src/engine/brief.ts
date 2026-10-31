@@ -3,6 +3,7 @@ import { ReasonCode } from "./reasons.js";
 
 export const ACTION_NAMES = [
   "getMerchantSummary",
+  "getShopProfile",
   "explainFee",
   "checkDeviceHealth",
   "raiseTicket",

@@ -1,4 +1,4 @@
-import { LENDER_RULES, LOAN_TERMS, OFFER } from "../../config/loans.js";
+import { LENDER_RULES, LOAN_TERMS, OFFER, STOCK } from "../../config/loans.js";
 import { VALUE } from "../../config/value.js";
 import type { Features } from "../features/buildFeatures.js";
 import { TODAY, type Merchant } from "../sim/types.js";
@@ -36,13 +36,29 @@ export function hardship(loan: ActiveLoan, f: Features) {
   };
 }
 
+// What the shop's next stock costs, from its own recent sales.
+export function stockPlan(m: Merchant) {
+  const recent = m.days.slice(TODAY - 20, TODAY + 1);
+  const dailySalesInr = Math.round(recent.reduce((s, d) => s + d.value, 0) / recent.length);
+  return { dailySalesInr, stockCoverDays: STOCK.coverDays, stockNeedInr: Math.round(dailySalesInr * STOCK.coverDays * STOCK.costShare), salesGrowthPct: growthPct(m) };
+}
+
+// A good moment: sales are holding up and nothing is broken or unresolved.
+function goodTime(m: Merchant, f: Features) {
+  const sum = (from: number, to: number) => m.days.slice(from, to).reduce((s, d) => s + d.value, 0);
+  return f.openTickets === 0 && f.failRate7 < 0.1 && sum(TODAY - 6, TODAY + 1) >= 0.9 * sum(TODAY - 13, TODAY - 6);
+}
+
 export function loanOffer(m: Merchant, f: Features) {
   if (loanOf(m, f)) return { eligible: false as const, why: "The shop already has a Paytm loan." };
   const ready = f.monthlyCollections >= VALUE.loanReadyMonthlyCollections && f.failRate7 < 0.1;
-  const amountInr = Math.min(OFFER.maxAmountInr, Math.floor(f.monthlyCollections / OFFER.roundToInr) * OFFER.roundToInr);
+  const stock = stockPlan(m);
+  // Sized to the shop's next stock, never above one month's collections.
+  const amountInr = Math.max(OFFER.minAmountInr, Math.min(OFFER.maxAmountInr, Math.floor(Math.min(f.monthlyCollections, stock.stockNeedInr) / OFFER.roundToInr) * OFFER.roundToInr));
   if (!ready || amountInr < OFFER.minAmountInr) return { eligible: false as const, why: "The shop needs a few more months of steady collections." };
   return {
     eligible: true as const,
+    ...stock,
     options: LOAN_TERMS.map((t) => ({ optionId: t.optionId, amountInr, days: t.days, dailyInr: Math.ceil((amountInr * t.repayFactor) / t.days), totalRepayInr: Math.ceil((amountInr * t.repayFactor) / t.days) * t.days })),
     note: "Illustrative offer. The lender makes the final decision.",
   };
@@ -60,5 +76,6 @@ export function loanCase(m: Merchant, f: Features) {
   const loan = loanOf(m, f);
   if (loan && loan.missedEmis > 0) return "loan_overdue" as const;
   const offer = loanOffer(m, f);
-  return offer.eligible && growthPct(m) >= OFFER.minGrowthPct && f.monthlyCollections >= OFFER.minMonthlyInr ? ("loan_opportunity" as const) : null;
+  const affordable = offer.eligible && offer.options[0]!.dailyInr <= offer.dailySalesInr * STOCK.maxDailyShareOfSales;
+  return affordable && growthPct(m) >= OFFER.minGrowthPct && f.monthlyCollections >= OFFER.minMonthlyInr && goodTime(m, f) ? ("loan_opportunity" as const) : null;
 }

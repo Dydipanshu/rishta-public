@@ -241,15 +241,17 @@ export async function decisionsView(sql: Sql) {
 }
 
 // Every shop can be searched, not only the demo ones. A random pick is what shows nothing is scripted.
-export async function shopsView(sql: Sql, q: string) {
+export async function shopsView(sql: Sql, q: string, offset = 0) {
   const like = `%${q.trim()}%`;
   const rows = await sql.all<{ id: string; name: string; city: string; category: string; is_demo: number; meta: string | null; left_kind: string | null }>(
     `SELECT m.id, m.name, m.city, m.category, m.is_demo, b.meta, l.kind AS left_kind FROM merchants m
      LEFT JOIN briefs b ON b.merchant_id = m.id AND b.sort_key >= 0 LEFT JOIN left_alone l ON l.merchant_id = m.id
-     WHERE m.name LIKE ? OR m.city LIKE ? OR m.id LIKE ? ORDER BY m.is_demo DESC, (b.meta IS NULL), m.id LIMIT 60`, [like, like, like]);
+     WHERE m.name LIKE ? OR m.city LIKE ? OR m.id LIKE ? ORDER BY m.is_demo DESC, (b.meta IS NULL), m.id LIMIT 60 OFFSET ?`, [like, like, like, offset]);
   const total = await sql.get<{ n: number }>("SELECT COUNT(*) AS n FROM merchants");
+  const matching = await sql.get<{ n: number }>("SELECT COUNT(*) AS n FROM merchants m WHERE m.name LIKE ? OR m.city LIKE ? OR m.id LIKE ?", [like, like, like]);
   return {
     total: Number(total?.n ?? 0),
+    matching: Number(matching?.n ?? 0),
     shops: rows.map((r) => ({ id: r.id, name: r.name, city: r.city, category: r.category, demo: !!r.is_demo, status: r.left_kind ? "Left alone" : r.meta ? String(parse(r.meta).reasonLabel) : "No issue today" })),
   };
 }

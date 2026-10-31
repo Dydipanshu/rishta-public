@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { eligiblePlans } from "../../config/plans.js";
-import { deviceFacts, feeFacts, summaryFacts } from "../engine/facts.js";
+import { deviceFacts, feeFacts, shopProfile, summaryFacts } from "../engine/facts.js";
 import { OutcomeKind, type ActionName, type Brief } from "../engine/brief.js";
 import { audit, type Sql } from "../data/sql.js";
 import type { PaytmCore } from "../ports.js";
@@ -35,9 +35,14 @@ const recordLoan = (sql: Sql, id: string, kind: string, amountInr: number, detai
 
 export const TOOLS: Record<ActionName, ToolDef> = {
   getMerchantSummary: {
-    description: "Last 30 days: collections, payments, customers and the latest settlement.",
+    description: "Sales today, yesterday, last 7 days and last 30 days, plus payments, customers and the latest settlement.",
     args: none,
     run: async ({ core, brief }) => summaryFacts(await core.merchant(brief.merchantId), TODAY),
+  },
+  getShopProfile: {
+    description: "Everything on record for this shop: week-by-week sales, average payment, repeat customers, plan, device, settlements, and what its next stock would cost. Use for any question about the shop that the facts don't answer.",
+    args: none,
+    run: async ({ core, brief }) => shopProfile(await core.merchant(brief.merchantId), TODAY),
   },
   explainFee: {
     description: "This shop's latest fee figures. Call only if the figures are not already in the facts.",

@@ -18,7 +18,11 @@ const ACTION: Record<string, string> = {
 
 function Picker({ selected, pick }: { selected: string; pick: (id: string) => void }) {
   const [q, setQ] = useState("");
-  const [data, setData] = useState<{ total: number; shops: ShopRow[] } | null>(null);
+  const [data, setData] = useState<{ total: number; matching: number; shops: ShopRow[] } | null>(null);
+  const more = async () => {
+    const res = await (await fetch(`/api/shops?q=${encodeURIComponent(q)}&offset=${data?.shops.length ?? 0}`)).json();
+    setData((d) => d && { ...d, shops: [...d.shops, ...res.shops] });
+  };
   useEffect(() => {
     const t = setTimeout(() => void fetch(`/api/shops?q=${encodeURIComponent(q)}`).then((r) => r.json()).then(setData), 150);
     return () => clearTimeout(t);
@@ -49,6 +53,7 @@ function Picker({ selected, pick }: { selected: string; pick: (id: string) => vo
           </li>
         ))}
         {data?.shops.length === 0 && <li><Empty title="No shop found" /></li>}
+        {data && data.shops.length < data.matching && <li className="p-3"><button onClick={() => void more()} className="btn-ghost w-full justify-center">Load more ({data.shops.length.toLocaleString("en-IN")} of {data.matching.toLocaleString("en-IN")})</button></li>}
       </ul>
     </aside>
   );

@@ -123,7 +123,7 @@ export async function buildApp(d: AppDeps) {
   });
   app.get("/api/console", { preHandler: serviceAuth }, () => consoleView(sql, core));
   app.get("/api/decisions", { preHandler: serviceAuth }, () => decisionsView(sql));
-  app.get<{ Querystring: { q?: string } }>("/api/shops", { preHandler: serviceAuth }, (req) => shopsView(sql, req.query.q ?? ""));
+  app.get<{ Querystring: { q?: string; offset?: string } }>("/api/shops", { preHandler: serviceAuth }, (req) => shopsView(sql, req.query.q ?? "", Math.max(0, Number(req.query.offset) || 0)));
   app.get<{ Params: { id: string } }>("/api/shop/:id", { preHandler: serviceAuth }, async (req, reply) => (await shopView(sql, core, req.params.id)) ?? reply.code(404).send({ error: "No such shop" }));
   app.get<{ Params: { id: string } }>("/api/merchant/:id", { preHandler: merchantAuth }, async (req, reply) => {
     if (!(await sql.get("SELECT 1 AS ok FROM merchants WHERE id = ?", [req.params.id]))) return reply.code(404).send({ error: "No such shop" });
